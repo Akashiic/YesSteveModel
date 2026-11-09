@@ -1,0 +1,26 @@
+# Built-in models, in the picker's order: one folder (with its ysm.json) per line. BuiltinIndexTest checks that every
+# folder is listed.
+default
+misc/1_alex
+misc/2_steve
+misc/3_default_boy
+misc/4_default_controllers
+wine_fox/01_taisho_maid
+wine_fox/02_new_year
+wine_fox/03_astronaut
+wine_fox/04_kongfu
+wine_fox/05_magical
+wine_fox/06_hanfu
+wine_fox/07_jk
+wine_fox/08_sta
+wine_fox/11_salesperson
+wine_fox/12_little
+wine_fox/13_matured
+wine_fox/14_momo
+wine_fox/15_kluonoa
+wine_fox/16_tactics
+wine_fox/18_wedding
+wine_fox/19_nine_tailed
+wine_fox/20_survivor
+wine_fox/21_saint
+wine_fox/22_elf

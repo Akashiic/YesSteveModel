@@ -316,11 +316,12 @@ compartilhado).
 
 `com.akashic.futura.api.FuturaModels` é o ponto de entrada para outros mods, só com tipos do JDK e do Minecraft nas
 assinaturas, para ser chamado por reflexão (o Kunftig não depende do futura3d). Lado do cliente; no servidor dedicado
-responde `false`/`null`. `API_VERSION = 1`.
+responde `false`/`null`. `API_VERSION = 2` (o 2, da fase 4b, acrescenta `modelKey`).
 
 | Método | O que dá |
 |---|---|
 | `isModelled(player)` | desenhado no mundo com modelo neste quadro ou no anterior |
+| `modelKey(player)` | o modelo com que o jogador é desenhado agora (`builtin:<pasta>` ou `server:<id>`; `builtin:default` enquanto o dele carrega). Cada jogador tem o seu, então os locators diferem de um para outro |
 | `locator(player, nome)`, `locatorOrNull(player, nomes...)`, `locators(player, nome)` | quadro do locator em espaço de render relativo à câmera (o de `RenderWorldLastEvent`); pedido antes de o jogador ser desenhado neste quadro (uma entidade desenhada antes, como a boia), a pose do quadro anterior é levada junto com o jogador para onde ele está agora |
 | `hasLocator(player, nome)` | o modelo tem um osso do grupo, visível ou escondido (escala 0) |
 | `drewModel(player)`, `locatorInLastDraw(player, nome)` | para quem trata `RenderPlayerEvent.Post`: se o desenho que acabou foi o modelo, e o locator relativo à matriz desse evento (mundo ou inventário). `RenderPlayerEvent.Specials` não dispara para jogador com modelo |
@@ -355,6 +356,101 @@ agachar) e a linha não segue a mão do modelo. Aqui segue, porque na 1.7.10 ess
 dele (o caminho do quadro anterior); a linha com o jogador dormindo ou montado; a cor da linha (vanilla preta).
 
 Testes: 226.
+
+## Fase 4b: vários modelos no cliente e o seletor
+
+Cada jogador é desenhado com o seu modelo. A camada de rede (fase 4a, outro trabalho: pacotes `net` e `server`) só
+fala com dois contratos do cliente, `client/ModelRegistry` e `client/ModelSelection`; esta fase os implementa, junto
+com o desenho por jogador, as fontes de modelo, as texturas que não estão nos pacotes de recursos e o seletor.
+
+### Modelos conhecidos (`ModelRegistry`)
+
+* Chaves `builtin:<pasta>` para cada modelo embutido e `server:<id>` para os que o servidor mandar. Os embutidos são
+  listados em `assets/futura3d/builtin/index.txt` (um jar não se lista de forma portátil; `ModelInfoTest` confere que
+  o índice tem todas as pastas com `ysm.json`), na ordem do seletor: `default`, `misc/*`, `wine_fox/*`.
+* No início só os manifestos são lidos (`model/ModelInfo`: nome, autores, licença, texturas, `preview_animation`);
+  `builtin:default`, o modelo de reserva, é carregado na hora. Os outros carregam no primeiro uso (alguém o escolhe, o
+  seletor o mostra) num executor de duas threads de baixa prioridade: leitura, `GeoBaker`, compilação das animações
+  (terceira e primeira pessoa), decodificação das texturas e partições de face. O trabalho de GL (display lists,
+  envio da textura) fica para o primeiro desenho, na thread de render (`client/ClientModel`).
+* `registerServerModel(chave, fonte, travado)` carrega fora da thread de render e substitui a chave (o modelo antigo
+  continua desenhado até o novo ficar pronto, e então é liberado). Enquanto um modelo não está pronto, quem o escolheu
+  aparece com `builtin:default`.
+* Memória: `clearServerModels()` libera display lists e texturas dos modelos do servidor e esquece os animadores e
+  quadros deles; ao fechar o seletor, os embutidos que ele carregou e que ninguém usa nem escolheu são liberados
+  (`releaseUnused`) e carregam de novo quando preciso.
+
+### Seleção (`ModelSelection`)
+
+`select(uuid, chave, textura)`, `keyOf`, `textureOf`, `clearRemote()` e `setHandler`, como o contrato. Sem handler
+(um jogador, ou servidor sem o mod), `requestLocal` aplica a escolha ao jogador local e a grava em
+**`config/futura3d-client.properties`** (`model=` e `texture=`; `requestLocal(null, null)` apaga o arquivo), que
+volta depois de reiniciar o jogo; uma seleção que o servidor mande para o jogador local vale mais que ela. Com
+handler, `requestLocal` só chama o handler. `localKey()`/`localTexture()` dão a escolha gravada para a rede mandar ao
+entrar num servidor.
+
+### Desenho por jogador
+
+`PlayerModels` pede a `ModelSelection` a chave de cada jogador (`builtin:default` quando nula ou não pronta), escolhe a
+textura (`texture` = nome do arquivo sem extensão entre as do modelo, senão a padrão do modelo) e mantém um
+`PlayerAnimator` por jogador **e modelo**: quando o modelo do jogador muda, o animador antigo é descartado. Os quadros
+dos locators (`ThirdPersonRenderer`) também são por jogador e trocados quando a geometria muda, então
+`FuturaModels.locator` e companhia continuam valendo por jogador. Os braços em primeira pessoa usam o modelo e a
+textura do jogador local. `PlayerModels.use(pasta)`/`force(chave)` ficaram só para o harness (todos com o mesmo modelo).
+
+### Fontes e texturas
+
+* `model/FolderModelSource` (pasta; recusa caminho que saia dela, inclusive por link simbólico), `ZipModelSource`
+  (lido para a memória uma vez; limites de tamanho por entrada, total e número de entradas contados nos bytes
+  descomprimidos, não nos cabeçalhos; entrada com `..` ou caminho absoluto recusa o zip inteiro; um zip com tudo
+  dentro de uma pasta é lido dessa pasta) e `MemoryModelSource` (`Map<String, byte[]>`), todos com
+  `ModelSource.clean`. Testes em `ModelSourcesTest`.
+* Texturas de modelos fora do classpath vêm dos bytes da fonte (`ImageIO`), viram `client/render/ModelTexture`
+  (como o `DynamicTexture`, mas larga os pixels depois de enviar) registrada no `TextureManager` como
+  `futura3d:dynamic/model_<n>`, e são apagadas com o modelo; o local liberado é reaproveitado pela próxima textura,
+  porque o `TextureManager` da 1.7.10 nunca esquece um local. A **mesma imagem** dá as partições de face. Cada textura
+  tem as suas partições (opaca/translúcida vêm do alfa dela); texturas com partições iguais dividem as display lists.
+  Os embutidos continuam com a textura pelo pacote de recursos.
+
+### Seletor (`client/gui/ModelPickerScreen`)
+
+Tecla **`Y`** (como no YSM antigo), na categoria "3D Futura Engine", ao lado da roleta. À direita, os modelos em
+cartões (5 x 2 por página, menos colunas em tela estreita; páginas por botões e roda do mouse) com uma prévia 3D
+animada, o nome, a licença numa etiqueta colorida (verde CC0, ciano licenças livres, laranja não comercial, vermelho
+reservada ou desconhecida), `S` nos modelos do servidor, os travados escurecidos com "Bloqueado", o em uso com borda
+verde. A dica do cartão mostra nome, chave, licença com a descrição, autores e número de texturas. À esquerda, a
+prévia grande do cartão escolhido, girando (arrastar gira à mão; `disable_preview_rotation` para o giro), o seletor de
+textura, a licença em destaque numa faixa e os autores; o botão confirma com `ModelSelection.requestLocal` (clique duplo
+no cartão também). Os cartões tocam a `preview_animation` do modelo; a prévia grande toca o idle, como a tela de
+texturas do upstream. O enquadramento é o do upstream (`geo/ModelFraming`, de `GuiModelView`/`GuiModelFraming`): a
+caixa dos ossos visíveis na pose, num envelope que só cresce, ocupando 88% do retângulo. Textos em `en_US` e `pt_BR`.
+
+![Seletor (só os modelos CC0, filtro do harness): Default com a textura azul, dica do cartão Alex](img/fase4b-seletor.png)
+![Modelos como o servidor mandaria: Default Boy de uma pasta (textura vermelha) e Alex da memória, texturas enviadas pelo caminho dinâmico](img/fase4b-servidor.png)
+![O seletor com os modelos do servidor: o travado escurecido, a dica dele](img/fase4b-seletor-servidor.png)
+
+Harness (`dev/RenderHarness.pickerSteps`, `futura3d-harness` com `only picker`): seletor aberto, seletor com os
+modelos carregados e a dica, só CC0, a segunda página (poses de GUI autorais e a segunda textura da Momo), `requestLocal`
+de `builtin:wine_fox/18_wedding` (o jogador local muda, a escolha é gravada), dois jogadores com modelos diferentes
+(Wedding e Default azul), três modelos registrados como o servidor faria (pasta, memória e um travado, cópias de
+modelos CC0 embutidos), o seletor com eles, e a volta ao `builtin:default` depois de `clearServerModels`. No fim,
+`requestLocal(null, null)` apaga a escolha gravada.
+
+**A checar**:
+
+* Lado a lado com o YSM 1.20: as poses de GUI autorais (`preview_animation: gui` dos `wine_fox` mostra uma moldura
+  `Backgrounds` atrás do personagem, que no harness sai cinza clara e grande no cartão: o enquadramento inclui a
+  moldura, como o do upstream, mas a cor e a proporção não foram comparadas), o ângulo da câmera dos cartões
+  (aqui de frente para pose autoral e a 20° para idle) e a luz da prévia.
+* Com a rede (fase 4a): o handler, `locked` vindo do servidor, a troca de modelo de outro jogador ao vivo e
+  `clearServerModels` ao desconectar; aqui só foram exercitados pelo harness, sem rede.
+* Tempo de carga fora do harness (aqui, de 10 a 360 ms por modelo nas threads de carga, a maior parte na primeira
+  carga, com o JIT frio) e o custo do seletor com dez prévias animadas numa máquina fraca.
+* Nomes CJK e com códigos `§` nos cartões em outras escalas de interface; um zip de verdade arrastado por um usuário
+  (o carregamento local de pastas e zips ainda não tem tela: as fontes existem para a rede e para a fase seguinte).
+
+Testes: 253 (fontes de modelo, `ModelInfo` e o índice dos embutidos, `ModelFraming`, a escolha gravada e o contrato de
+`ModelSelection` sem o jogo).
 
 ## Fases
 

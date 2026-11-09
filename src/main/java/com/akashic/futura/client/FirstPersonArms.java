@@ -23,8 +23,6 @@ import com.akashic.futura.anim.BonePose;
 import com.akashic.futura.anim.ModelAnimations;
 import com.akashic.futura.anim.PlayerAnimator;
 import com.akashic.futura.anim.PlayerSnapshot;
-import com.akashic.futura.client.render.GeometryRenderer;
-import com.akashic.futura.model.LoadedModel;
 
 /**
  * The local player's first-person arms: the model's {@code arm} geometry, animated by its own
@@ -38,13 +36,11 @@ public final class FirstPersonArms {
     public static final FirstPersonArms INSTANCE = new FirstPersonArms();
 
     private final PlayerSnapshot snapshot = new PlayerSnapshot();
-    private LoadedModel builtFor;
+    /** The local player's model of this draw, and its first-person animations. */
+    private ClientModel model;
     private ModelAnimations arms;
-    private GeometryRenderer renderer;
     private PlayerAnimator animator;
     private PlayerAnimator body;
-    private boolean failed;
-    private boolean animationFailed;
     private float partialTicks;
     private boolean enabled = true;
 
@@ -115,39 +111,23 @@ public final class FirstPersonArms {
         if (!enabled || !models.active() || player != mc.thePlayer || !(player instanceof AbstractClientPlayer)) {
             return false;
         }
-        LoadedModel model = models.model();
-        if (model != builtFor) {
-            rebuild(model);
-        }
-        if (failed || arms == null) {
+        // The local player's own model, with the animations compiled with it (the body animator is the same
+        // player's, so its v.roaming variables are shared).
+        ClientModel current = models.modelOf(player);
+        if (current == null || current.arms == null) {
             return false;
         }
-        PlayerAnimator current = models.animator((AbstractClientPlayer) player);
-        if (current != body || animator == null) {
-            body = current;
+        if (current != model) {
+            model = current;
+            arms = current.arms;
+            animator = null;
+        }
+        PlayerAnimator bodyNow = models.animator((AbstractClientPlayer) player);
+        if (bodyNow != body || animator == null) {
+            body = bodyNow;
             animator = PlayerAnimator.firstPerson(arms, body);
         }
         return true;
-    }
-
-    private void rebuild(LoadedModel model) {
-        if (renderer != null) {
-            renderer.delete();
-        }
-        renderer = null;
-        arms = null;
-        animator = null;
-        body = null;
-        builtFor = model;
-        failed = false;
-        animationFailed = false;
-        try {
-            arms = ModelAnimations.compileFirstPerson(model);
-            renderer = new GeometryRenderer(model.arm);
-        } catch (RuntimeException e) {
-            failed = true;
-            Futura3D.LOG.error("Could not prepare the first-person arms of model {}", model.name(), e);
-        }
     }
 
     private BonePose update(AbstractClientPlayer player) {
@@ -157,16 +137,16 @@ public final class FirstPersonArms {
             animator.update(snapshot, player.ticksExisted + pt);
             return animator.pose();
         } catch (RuntimeException e) {
-            if (!animationFailed) {
-                animationFailed = true;
-                Futura3D.LOG.error("First-person animation failed for model {}", builtFor.name(), e);
+            if (!model.armAnimationFailed) {
+                model.armAnimationFailed = true;
+                Futura3D.LOG.error("First-person animation failed for model {}", model.key, e);
             }
             return null;
         }
     }
 
     private void draw(int root, BonePose pose) {
-        ResourceLocation texture = PlayerModels.INSTANCE.texture();
+        ResourceLocation texture = PlayerModels.INSTANCE.textureOf(model, Minecraft.getMinecraft().thePlayer);
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
         GL11.glEnable(GL12.GL_RESCALE_NORMAL);
         GL11.glEnable(GL11.GL_ALPHA_TEST);
@@ -177,7 +157,8 @@ public final class FirstPersonArms {
         Minecraft.getMinecraft()
             .getTextureManager()
             .bindTexture(texture);
-        renderer.drawSubtree(root, pose);
+        model.armRenderer()
+            .drawSubtree(root, pose);
         GL11.glPopAttrib();
     }
 }

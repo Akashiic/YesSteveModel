@@ -25,7 +25,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
  * Key bindings of the extra (emote) animations: the roulette ({@code Z}, as upstream), extra animations 0-7 (unbound)
- * and the roulette lock (unbound). Moving, jumping or sneaking stops the emote unless the lock is on.
+ * and the roulette lock (unbound). Moving, jumping or sneaking stops the emote unless the lock is on. The model picker
+ * ({@code Y}) is in the same category.
  */
 public final class EmoteKeys {
 
@@ -35,6 +36,8 @@ public final class EmoteKeys {
         Keyboard.KEY_Z,
         CATEGORY);
     public static final KeyBinding LOCK = new KeyBinding("key.futura3d.lock_roulette", Keyboard.KEY_NONE, CATEGORY);
+    /** The model picker ({@code Y}, as the legacy YSM). */
+    public static final KeyBinding MODEL_PICKER = new KeyBinding("key.futura3d.model_picker", Keyboard.KEY_Y, CATEGORY);
     public static final KeyBinding[] EXTRA = new KeyBinding[RouletteMenu.PER_PAGE];
 
     static {
@@ -49,6 +52,7 @@ public final class EmoteKeys {
 
     public static void register() {
         ClientRegistry.registerKeyBinding(ROULETTE);
+        ClientRegistry.registerKeyBinding(MODEL_PICKER);
         ClientRegistry.registerKeyBinding(LOCK);
         for (KeyBinding key : EXTRA) {
             ClientRegistry.registerKeyBinding(key);
@@ -84,6 +88,12 @@ public final class EmoteKeys {
         }
         while (LOCK.isPressed()) {
             switchLock();
+        }
+        while (MODEL_PICKER.isPressed()) {
+            if (PlayerModels.INSTANCE.active()) {
+                mc.displayGuiScreen(new com.akashic.futura.client.gui.ModelPickerScreen());
+                return;
+            }
         }
         RouletteMenu menu = LocalEmotes.INSTANCE.menu();
         if (menu == null || !PlayerModels.INSTANCE.active()) {

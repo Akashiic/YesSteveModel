@@ -74,6 +74,11 @@ public final class FacePartition {
             if (image == null) {
                 throw new IOException("Unreadable image");
             }
+            return of(image);
+        }
+
+        /** The alpha of a decoded image (the same image a model's texture is uploaded from). */
+        public static Alpha of(BufferedImage image) {
             int w = image.getWidth(), h = image.getHeight();
             int[] argb = image.getRGB(0, 0, w, h, null, 0, w);
             byte[] alpha = new byte[w * h];

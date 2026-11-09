@@ -29,8 +29,8 @@ import cpw.mods.fml.common.FMLCommonHandler;
  */
 public final class FuturaModels {
 
-    /** Raised when a method is added; 1: the methods below. */
-    public static final int API_VERSION = 1;
+    /** Raised when a method is added; 1: the methods below; 2: {@link #modelKey}. */
+    public static final int API_VERSION = 2;
 
     private FuturaModels() {}
 
@@ -43,6 +43,21 @@ public final class FuturaModels {
     /** Whether the player was drawn in the world with a model in this frame or the one before. */
     public static boolean isModelled(EntityPlayer player) {
         return player != null && client() && PlayerModels.INSTANCE.modelled(player);
+    }
+
+    /**
+     * The model the player is drawn with now: {@code builtin:<folder>} or {@code server:<id>}; the default model
+     * ({@code builtin:default}) while his own model loads. Each player has his own model, so locators and their
+     * presence differ between players.
+     *
+     * @return the key, or {@code null} on a dedicated server or before the models are loaded
+     */
+    public static String modelKey(EntityPlayer player) {
+        if (player == null || !client()) {
+            return null;
+        }
+        com.akashic.futura.client.ClientModel model = PlayerModels.INSTANCE.modelOf(player);
+        return model == null ? null : model.key;
     }
 
     /**
