@@ -1,7 +1,6 @@
 package com.akashic.futura.client;
 
-import java.io.IOException;
-import java.io.InputStream;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.function.Function;
@@ -18,96 +17,123 @@ import org.lwjgl.opengl.GL12;
 
 import com.akashic.futura.Futura3D;
 import com.akashic.futura.anim.BonePose;
-import com.akashic.futura.anim.ModelAnimations;
 import com.akashic.futura.anim.PlayerAnimator;
 import com.akashic.futura.anim.PlayerSnapshot;
-import com.akashic.futura.client.render.GeometryRenderer;
-import com.akashic.futura.geo.FacePartition;
-import com.akashic.futura.model.ClasspathModelSource;
+import com.akashic.futura.geo.PoseMatrices;
 import com.akashic.futura.model.LoadedModel;
-import com.akashic.futura.model.ModelLoader;
 
 /**
- * Draws players with their model instead of the vanilla biped, animated by a {@link PlayerAnimator} per player. For
- * now every player gets the same built-in model (no selection or networking yet).
+ * Draws players with their model instead of the vanilla biped. Each player is drawn with the model
+ * {@link ModelSelection} gives him ({@link ModelRegistry#DEFAULT} when none, or while his model loads), with his
+ * selected texture, animated by a {@link PlayerAnimator} kept per player and model (a new one when his model changes).
  */
 public final class PlayerModels {
 
     public static final PlayerModels INSTANCE = new PlayerModels();
-    private static final String BUILTIN = "/assets/futura3d/builtin/";
 
-    private LoadedModel model;
-    private GeometryRenderer renderer;
-    private ModelAnimations animations;
-    private final Map<AbstractClientPlayer, PlayerAnimator> animators = new WeakHashMap<>();
+    /** A player's animator and the model it animates. */
+    private static final class Animated {
+
+        final ClientModel model;
+        final PlayerAnimator animator;
+
+        Animated(ClientModel model) {
+            this.model = model;
+            this.animator = new PlayerAnimator(model.animations);
+        }
+    }
+
+    private final Map<AbstractClientPlayer, Animated> animators = new WeakHashMap<>();
     private final PlayerSnapshot snapshot = new PlayerSnapshot();
-    private ResourceLocation texture;
-    private boolean failed;
     private boolean enabled = true;
-    private boolean animationFailed;
+    /** Development: every player drawn with this model, whatever is selected. */
+    private String forced;
 
     private final ThirdPersonRenderer thirdPerson = new ThirdPersonRenderer();
 
     private PlayerModels() {}
 
-    /** Reads and bakes the built-in default model (no GL work: the display lists are made on the first draw). */
+    /** Lists the models and loads the default one (no GL work: display lists are made on the first draw). */
     public void load() {
-        use("default");
+        ModelRegistry.INSTANCE.init();
     }
 
     /**
-     * Switches every player to a built-in model.
+     * Development: draws every player with a built-in model, whatever is selected (loaded on this thread).
      *
      * @param builtin folder under {@code assets/futura3d/builtin}, e.g. {@code default} or {@code wine_fox/18_wedding}
      * @return false if it could not be loaded (the previous model stays)
      */
     public boolean use(String builtin) {
-        try {
-            String base = BUILTIN + builtin + "/";
-            LoadedModel loaded = ModelLoader.load(new ClasspathModelSource(base));
-            if (renderer != null) {
-                renderer.delete();
-            }
-            ModelAnimations compiled = ModelAnimations.compile(loaded);
-            byte[][] partitions = partitions(loaded);
-            model = loaded;
-            animations = compiled;
-            animators.clear();
-            thirdPerson.reset();
-            renderer = new GeometryRenderer(loaded.main, partitions);
-            texture = new ResourceLocation(Futura3D.MODID, "builtin/" + builtin + "/" + loaded.defaultTexture());
-            failed = false;
-            animationFailed = false;
-            Futura3D.LOG.info(
-                "Model {}: {} bones, {} cubes, {} quads, texture {}",
-                loaded.name(),
-                loaded.main.bones.length,
-                loaded.main.cubeCount,
-                loaded.main.quadCount(),
-                texture);
+        return force(ModelRegistry.BUILTIN + builtin);
+    }
+
+    /**
+     * Development: draws every player with a model, whatever is selected, or goes back to the selections.
+     *
+     * @param key a {@link ModelRegistry} key (loaded on this thread), or null for the selections
+     * @return false if it could not be loaded (nothing changes)
+     */
+    public boolean force(String key) {
+        if (key == null) {
+            forced = null;
             return true;
-        } catch (Exception e) {
-            failed = renderer == null;
-            Futura3D.LOG.error("Could not load the built-in model {}", builtin, e);
+        }
+        if (ModelRegistry.INSTANCE.loadNow(key) == null) {
+            Futura3D.LOG.error("Could not load model {}", key);
             return false;
         }
+        forced = key;
+        return true;
     }
 
     public boolean active() {
-        return enabled && !failed && renderer != null;
+        return enabled && ModelRegistry.INSTANCE.get(ModelRegistry.DEFAULT) != null;
     }
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
 
-    public LoadedModel model() {
-        return model;
+    /** The key of the model a player should be drawn with (it may still be loading). */
+    public String keyOf(EntityPlayer player) {
+        if (forced != null) {
+            return forced;
+        }
+        String key = player == null ? null : ModelSelection.INSTANCE.keyOf(player.getUniqueID());
+        return key == null ? ModelRegistry.DEFAULT : key;
     }
 
-    /** The texture of the current model (shared by the body and the first-person arms). */
+    /** The texture stem selected for a player, or null for his model's default. */
+    public String textureOf(EntityPlayer player) {
+        return forced != null || player == null ? null : ModelSelection.INSTANCE.textureOf(player.getUniqueID());
+    }
+
+    /** The model a player is drawn with now: his model if ready, else the default model (null before start-up). */
+    public ClientModel modelOf(EntityPlayer player) {
+        ClientModel model = ModelRegistry.INSTANCE.get(keyOf(player));
+        return model != null ? model : ModelRegistry.INSTANCE.get(ModelRegistry.DEFAULT);
+    }
+
+    /** The local player's model now (the default model without a world). */
+    public ClientModel localModel() {
+        return modelOf(Minecraft.getMinecraft().thePlayer);
+    }
+
+    /** The local player's model now, as loaded from its files. */
+    public LoadedModel model() {
+        ClientModel model = localModel();
+        return model == null ? null : model.loaded;
+    }
+
+    /** The texture the local player's model is drawn with (shared by the body and the first-person arms). */
     public ResourceLocation texture() {
-        return texture;
+        return textureOf(localModel(), Minecraft.getMinecraft().thePlayer);
+    }
+
+    /** The texture of a player's model (render thread: uploads it on first use). */
+    public ResourceLocation textureOf(ClientModel model, EntityPlayer player) {
+        return model == null ? null : model.texture(model.skin(textureOf(player)));
     }
 
     /**
@@ -122,7 +148,12 @@ public final class PlayerModels {
         if (!active()) {
             return false;
         }
-        PlayerAnimator animator = animator(player);
+        ClientModel model = modelOf(player);
+        if (model == null) {
+            return false;
+        }
+        int skin = model.skin(textureOf(player));
+        PlayerAnimator animator = animated(player, model).animator;
         PlayerInputsAdapter.fill(snapshot, player, pt);
         BonePose pose = null;
         float bodyYaw = snapshot.bodyYaw;
@@ -132,18 +163,18 @@ public final class PlayerModels {
             bodyYaw = animator.renderBodyYaw();
         } catch (RuntimeException e) {
             // A broken animation must not take the game down: draw the rest pose and say it once per model.
-            if (!animationFailed) {
-                animationFailed = true;
-                Futura3D.LOG.error("Animation failed for model {}", model.name(), e);
+            if (!model.animationFailed) {
+                model.animationFailed = true;
+                Futura3D.LOG.error("Animation failed for model {}", model.key, e);
             }
         }
         thirdPerson.render(
             player,
-            renderer,
-            texture,
-            model.widthScale,
-            model.heightScale,
-            model.manifest.properties.renderLayersFirst,
+            model.renderer(skin),
+            model.texture(skin),
+            model.loaded.widthScale,
+            model.loaded.heightScale,
+            model.loaded.manifest.properties.renderLayersFirst,
             pose,
             pose == null ? null : animator.attributes(),
             x,
@@ -155,24 +186,85 @@ public final class PlayerModels {
         return true;
     }
 
-    /** The animator of a player for the current model, created on first use. */
+    /** The animator of a player for the model he is drawn with now, created on first use. */
     public PlayerAnimator animator(AbstractClientPlayer player) {
-        PlayerAnimator animator = animators.get(player);
-        if (animator == null) {
-            animator = new PlayerAnimator(animations);
-            animators.put(player, animator);
-        }
-        return animator;
+        ClientModel model = modelOf(player);
+        return model == null ? null : animated(player, model).animator;
     }
 
-    /** Draws the model in its rest pose at the current matrix (feet at the origin), scale applied here. */
+    private Animated animated(AbstractClientPlayer player, ClientModel model) {
+        Animated animated = animators.get(player);
+        if (animated == null || animated.model != model) {
+            // A new model (or a reload of it): its own animator; the old one is dropped.
+            animated = new Animated(model);
+            animators.put(player, animated);
+        }
+        return animated;
+    }
+
+    /** Frees the built-in models no player is drawn with or has selected (after the picker loaded many). */
+    public void releaseUnusedModels() {
+        java.util.Set<String> keep = new java.util.HashSet<>();
+        for (AbstractClientPlayer player : animators.keySet()) {
+            keep.add(keyOf(player));
+        }
+        keep.add(keyOf(Minecraft.getMinecraft().thePlayer));
+        ModelRegistry.INSTANCE.releaseUnused(keep, modelsInUse());
+    }
+
+    /** The models players are drawn with now (and the local player's). */
+    private java.util.Set<ClientModel> modelsInUse() {
+        java.util.Set<ClientModel> used = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (Animated animated : animators.values()) {
+            used.add(animated.model);
+        }
+        ClientModel local = localModel();
+        if (local != null) {
+            used.add(local);
+        }
+        if (forced != null) {
+            ClientModel model = ModelRegistry.INSTANCE.get(forced);
+            if (model != null) {
+                used.add(model);
+            }
+        }
+        return used;
+    }
+
+    /** Drops the animators and frames of models that were freed (server models after a disconnect). */
+    void forgetReleased() {
+        for (Iterator<Animated> it = animators.values()
+            .iterator(); it.hasNext();) {
+            if (it.next().model.released()) {
+                it.remove();
+            }
+        }
+        thirdPerson.forgetReleased();
+    }
+
+    /** Draws the local player's model in its rest pose at the current matrix (feet at the origin), scale applied. */
     public void drawAt(float widthScale, float heightScale) {
         drawAt(widthScale, heightScale, null);
     }
 
-    /** Draws the model at the current matrix (feet at the origin, facing the model's front), scale applied here. */
+    /** Draws the local player's model at the current matrix (feet at the origin, facing its front), scale applied. */
     public void drawAt(float widthScale, float heightScale, BonePose pose) {
+        ClientModel model = localModel();
+        if (model != null) {
+            drawModel(model, model.skin(textureOf(Minecraft.getMinecraft().thePlayer)), widthScale, heightScale, pose);
+        }
+    }
+
+    /**
+     * Draws a model at the current matrix (feet at the origin, facing its front), in white without bone attributes:
+     * copies in the world, previews in screens.
+     *
+     * @param skin a texture index of the model ({@link ClientModel#skin})
+     * @param pose the animation, or null for the rest pose
+     */
+    public void drawModel(ClientModel model, int skin, float widthScale, float heightScale, BonePose pose) {
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glPushMatrix();
         GL11.glScalef(widthScale, heightScale, widthScale);
         GL11.glEnable(GL12.GL_RESCALE_NORMAL);
         GL11.glEnable(GL11.GL_ALPHA_TEST);
@@ -180,27 +272,30 @@ public final class PlayerModels {
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glColor4f(1, 1, 1, 1);
-        Minecraft.getMinecraft()
-            .getTextureManager()
-            .bindTexture(texture);
-        renderer.draw(pose);
+        model.bind(skin);
+        model.renderer(skin)
+            .draw(pose);
+        GL11.glPopMatrix();
         GL11.glPopAttrib();
     }
 
-    // ---- Phase 3a: face partitions, locators and the off-hand seam ----
-
-    /** Upstream's face partitions from the default texture's alpha; all opaque if the texture cannot be read. */
-    private static byte[][] partitions(LoadedModel loaded) {
-        FacePartition.Alpha alpha = null;
-        try (InputStream in = loaded.source.open(loaded.defaultTexture())) {
-            if (in != null) {
-                alpha = FacePartition.Alpha.read(in);
-            }
-        } catch (IOException | RuntimeException e) {
-            Futura3D.LOG.warn("Could not read the texture of {} for its face partitions", loaded.name(), e);
-        }
-        return FacePartition.classify(loaded.main, alpha, loaded.manifest.properties.forceCulling);
+    /**
+     * Draws a model with bone matrices already computed, at the current matrix (the model's scale already applied by
+     * the caller), in white without bone attributes.
+     */
+    public void drawModel(ClientModel model, int skin, PoseMatrices pose) {
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glEnable(GL12.GL_RESCALE_NORMAL);
+        GL11.glEnable(GL11.GL_ALPHA_TEST);
+        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
+        GL11.glColor4f(1, 1, 1, 1);
+        model.bind(skin);
+        model.renderer(skin)
+            .draw(pose, null, 1, 1, 1, 1);
+        GL11.glPopAttrib();
     }
+
+    // ---- Phase 3a: locators and the off-hand seam ----
 
     /**
      * The frame of a locator bone in a player's last third-person draw, for attaching things to the model (rods,

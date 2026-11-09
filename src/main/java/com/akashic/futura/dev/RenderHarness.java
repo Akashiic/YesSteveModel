@@ -34,9 +34,13 @@ import org.lwjgl.opengl.GL11;
 
 import com.akashic.futura.Futura3D;
 import com.akashic.futura.client.LocalEmotes;
+import com.akashic.futura.client.ModelRegistry;
+import com.akashic.futura.client.ModelSelection;
 import com.akashic.futura.client.PlayerModels;
 import com.akashic.futura.client.gui.AnimationRouletteScreen;
 import com.akashic.futura.emote.RouletteMenu;
+import com.akashic.futura.model.FolderModelSource;
+import com.akashic.futura.model.MemoryModelSource;
 import com.mojang.authlib.GameProfile;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -99,6 +103,7 @@ public final class RenderHarness {
         copySteps("wedding", "wine_fox/18_wedding");
         copySteps("sta", "wine_fox/08_sta");
         itemSteps();
+        pickerSteps();
         onlySteps();
     }
 
@@ -777,5 +782,217 @@ public final class RenderHarness {
             GL11.glPopMatrix();
         }
         GL11.glPopAttrib();
+    }
+
+    // ---- Phase 4b: a model per player, the picker, server-style models ----
+
+    private static final String WEDDING = "builtin:wine_fox/18_wedding";
+
+    /**
+     * The picker (opened on the default model with its blue texture, the pointer on a card for its tooltip), a model
+     * chosen through {@code requestLocal}, two players with different models, models registered as a server would
+     * (from a folder and from memory, one locked) and drawn with their textures uploaded from the model's files, and
+     * the fallback once they are cleared. Restores the default model and deletes the saved local choice at the end.
+     */
+    private void pickerSteps() {
+        step("picker-open", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            removeFake();
+            clearBed();
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.force(null);
+            keys(false, false, false, false);
+            mc.gameSettings.hideGUI = false;
+            view(2, 0);
+            keepScreen = true;
+            mc.displayGuiScreen(
+                new com.akashic.futura.client.gui.ModelPickerScreen().focus(ModelRegistry.DEFAULT, "blue"));
+        });
+        // Same screen, 2 s later: the page's models have loaded; the pointer on the second card.
+        step("picker", () -> pointAtCard("builtin:misc/1_alex"));
+        // Only the CC0 models (the pictures in docs/img show no model under another licence).
+        step("picker-cc0", () -> {
+            Minecraft.getMinecraft()
+                .displayGuiScreen(
+                    new com.akashic.futura.client.gui.ModelPickerScreen().only(RenderHarness::publicDomain)
+                        .focus(ModelRegistry.DEFAULT, "blue"));
+            pointAtCard("builtin:misc/1_alex");
+        });
+        // The second page: authored GUI poses (preview_animation) on the cards, a second texture in the preview.
+        step(
+            "picker-page2",
+            () -> Minecraft.getMinecraft()
+                .displayGuiScreen(
+                    new com.akashic.futura.client.gui.ModelPickerScreen()
+                        .focus("builtin:wine_fox/14_momo", "skin_green")));
+        step("picker-page2-loaded", () -> {});
+        step("picker-wedding", () -> {
+            keepScreen = false;
+            Minecraft.getMinecraft()
+                .displayGuiScreen(null);
+            ModelSelection.INSTANCE.requestLocal(WEDDING, null);
+            ModelRegistry.INSTANCE.loadNow(WEDDING);
+            view(2, 0);
+            report(
+                "local model: " + PlayerModels.INSTANCE.keyOf(Minecraft.getMinecraft().thePlayer)
+                    + ", saved: "
+                    + ModelSelection.INSTANCE.localKey());
+        });
+        step("picker-two", () -> {
+            spawnBeside();
+            ModelSelection.INSTANCE.select(fake.getUniqueID(), ModelRegistry.DEFAULT, "blue");
+            view(2, 0);
+        });
+        step("picker-server", () -> {
+            try {
+                ModelRegistry.INSTANCE.registerServerModel(
+                    "server:boy_folder",
+                    new FolderModelSource(builtinDir("misc/3_default_boy")),
+                    false);
+                ModelRegistry.INSTANCE.registerServerModel(
+                    "server:alex_memory",
+                    new MemoryModelSource("alex_memory", readTree(builtinDir("misc/1_alex"))),
+                    false);
+                ModelRegistry.INSTANCE.registerServerModel(
+                    "server:steve_locked",
+                    new MemoryModelSource("steve_locked", readTree(builtinDir("misc/2_steve"))),
+                    true);
+            } catch (java.io.IOException e) {
+                report("server models: " + e);
+            }
+            ModelSelection.INSTANCE.requestLocal("server:boy_folder", "red");
+            if (fake == null) {
+                spawnBeside();
+            }
+            ModelSelection.INSTANCE.select(fake.getUniqueID(), "server:alex_memory", null);
+            view(2, 0);
+        });
+        step("picker-server-list", () -> {
+            report(
+                "server models ready: boy " + ModelRegistry.INSTANCE.isReady("server:boy_folder")
+                    + ", alex "
+                    + ModelRegistry.INSTANCE.isReady("server:alex_memory")
+                    + "; local "
+                    + PlayerModels.INSTANCE.modelOf(Minecraft.getMinecraft().thePlayer).key
+                    + " texture "
+                    + PlayerModels.INSTANCE.texture()
+                    + "; other "
+                    + PlayerModels.INSTANCE.modelOf(fake).key
+                    + " texture "
+                    + PlayerModels.INSTANCE.textureOf(PlayerModels.INSTANCE.modelOf(fake), fake));
+            keepScreen = true;
+            Minecraft.getMinecraft()
+                .displayGuiScreen(
+                    new com.akashic.futura.client.gui.ModelPickerScreen().only(RenderHarness::publicDomain)
+                        .focus("server:alex_memory", null));
+        });
+        step("picker-server-hover", () -> pointAtCard("server:steve_locked"));
+        step("picker-cleared", () -> {
+            keepScreen = false;
+            Minecraft.getMinecraft()
+                .displayGuiScreen(null);
+            ModelRegistry.INSTANCE.clearServerModels();
+            ModelSelection.INSTANCE.clearRemote();
+            report(
+                "after clearing: keys " + ModelRegistry.INSTANCE.keys()
+                    .size()
+                    + ", local "
+                    + PlayerModels.INSTANCE.modelOf(Minecraft.getMinecraft().thePlayer).key
+                    + ", other "
+                    + PlayerModels.INSTANCE.modelOf(fake).key);
+            view(2, 0);
+        });
+        step("picker-end", () -> {
+            ModelSelection.INSTANCE.requestLocal(null, null);
+            removeFake();
+            view(2, 0);
+        });
+    }
+
+    private static boolean publicDomain(String key) {
+        com.akashic.futura.model.ModelInfo info = ModelRegistry.INSTANCE.info(key);
+        return info == null || info.licenseKind() == com.akashic.futura.model.ModelInfo.LicenseKind.PUBLIC_DOMAIN;
+    }
+
+    private void spawnBeside() {
+        Minecraft mc = Minecraft.getMinecraft();
+        removeFake();
+        fake = new EntityOtherPlayerMP(mc.theWorld, new GameProfile(java.util.UUID.randomUUID(), "futura3d"));
+        fake.setPositionAndRotation(1.9, 4 + fake.yOffset, 0.5, 0, 0);
+        mc.theWorld.addEntityToWorld(FAKE_ID, fake);
+        fakeYaw = 0;
+        fakeHurt = 0;
+        fakeDying = false;
+        fakeUse = null;
+    }
+
+    private void pointAtCard(String key) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (!(mc.currentScreen instanceof com.akashic.futura.client.gui.ModelPickerScreen)) {
+            return;
+        }
+        int[] c = ((com.akashic.futura.client.gui.ModelPickerScreen) mc.currentScreen).cardCenter(key);
+        if (c == null) {
+            report("card not on the page: " + key);
+            return;
+        }
+        int scale = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        Mouse.setCursorPosition(c[0] * scale, mc.displayHeight - c[1] * scale - 1);
+    }
+
+    /**
+     * A built-in model's folder on disk: where the resources are unpacked, or a copy taken out of the development jar
+     * into {@code futura3d-harness-models} in the run directory.
+     */
+    private static File builtinDir(String folder) throws java.io.IOException {
+        String base = "assets/futura3d/builtin/" + folder + "/";
+        java.net.URL url = RenderHarness.class.getResource("/" + base + "ysm.json");
+        if (url == null) {
+            throw new java.io.IOException("No built-in model " + folder);
+        }
+        if ("file".equals(url.getProtocol())) {
+            try {
+                return new File(url.toURI()).getParentFile();
+            } catch (java.net.URISyntaxException e) {
+                throw new java.io.IOException(e);
+            }
+        }
+        File out = new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness-models/" + folder);
+        java.util.jar.JarFile jar = ((java.net.JarURLConnection) url.openConnection()).getJarFile();
+        for (java.util.Enumeration<java.util.jar.JarEntry> e = jar.entries(); e.hasMoreElements();) {
+            java.util.jar.JarEntry entry = e.nextElement();
+            if (entry.isDirectory() || !entry.getName()
+                .startsWith(base)) {
+                continue;
+            }
+            File target = new File(
+                out,
+                entry.getName()
+                    .substring(base.length()));
+            target.getParentFile()
+                .mkdirs();
+            try (java.io.InputStream in = jar.getInputStream(entry)) {
+                java.nio.file.Files.copy(in, target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+        return out;
+    }
+
+    /** Every file under a folder, by relative path, as a server's transfer would hand them over. */
+    private static java.util.Map<String, byte[]> readTree(File dir) throws java.io.IOException {
+        java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<>();
+        java.nio.file.Path root = dir.toPath();
+        try (java.util.stream.Stream<java.nio.file.Path> walk = java.nio.file.Files.walk(root)) {
+            for (java.nio.file.Path p : (Iterable<java.nio.file.Path>) walk::iterator) {
+                if (java.nio.file.Files.isRegularFile(p)) {
+                    files.put(
+                        root.relativize(p)
+                            .toString()
+                            .replace(File.separatorChar, '/'),
+                        java.nio.file.Files.readAllBytes(p));
+                }
+            }
+        }
+        return files;
     }
 }

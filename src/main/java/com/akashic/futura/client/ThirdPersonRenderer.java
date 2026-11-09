@@ -28,6 +28,7 @@ import com.akashic.futura.anim.BoneAttributes;
 import com.akashic.futura.anim.BonePose;
 import com.akashic.futura.client.render.GeometryRenderer;
 import com.akashic.futura.client.render.HeldItemRenderer;
+import com.akashic.futura.geo.BakedGeometry;
 import com.akashic.futura.geo.Mat4;
 import com.akashic.futura.geo.PoseMatrices;
 
@@ -52,6 +53,8 @@ public final class ThirdPersonRenderer {
     private static final class Frame {
 
         final PoseMatrices pose;
+        /** The geometry the pose is for: a player whose model changes gets a new frame. */
+        final BakedGeometry geometry;
         /** Model space to camera-relative render space (scale included). */
         final float[] entity = new float[Mat4.FLOATS];
         /** The render position of the feet in that draw (relative to the camera of that frame). */
@@ -59,7 +62,8 @@ public final class ThirdPersonRenderer {
         long frame = -10;
 
         Frame(GeometryRenderer renderer) {
-            pose = new PoseMatrices(renderer.geometry());
+            geometry = renderer.geometry();
+            pose = new PoseMatrices(geometry);
         }
     }
 
@@ -67,7 +71,6 @@ public final class ThirdPersonRenderer {
     private final HeldItemRenderer items = new HeldItemRenderer();
     private final FloatBuffer buffer = BufferUtils.createFloatBuffer(16);
     private final float[] locator = new float[Mat4.FLOATS];
-    private GeometryRenderer framesFor;
     private Frame guiFrame;
     private long frameCount;
     private float partialTicks;
@@ -90,12 +93,16 @@ public final class ThirdPersonRenderer {
         }
     }
 
-    /** Forgets every frame (the model changed). */
+    /** Forgets every frame. */
     void reset() {
         frames.clear();
         guiFrame = null;
-        framesFor = null;
         forgetLastDraw();
+    }
+
+    /** Forgets the frames of models that are no longer drawn (freed with them). */
+    void forgetReleased() {
+        reset();
     }
 
     /** A player is about to be drawn: until the model draws him, the last draw is not a model's. */
@@ -105,20 +112,15 @@ public final class ThirdPersonRenderer {
     }
 
     private Frame frame(AbstractClientPlayer player, GeometryRenderer renderer, boolean gui) {
-        if (framesFor != renderer) {
-            frames.clear();
-            guiFrame = null;
-            framesFor = renderer;
-        }
         if (gui) {
             // Inventory and other screens: drawn, but not kept as the player's frame in the world.
-            if (guiFrame == null) {
+            if (guiFrame == null || guiFrame.geometry != renderer.geometry()) {
                 guiFrame = new Frame(renderer);
             }
             return guiFrame;
         }
         Frame frame = frames.get(player);
-        if (frame == null) {
+        if (frame == null || frame.geometry != renderer.geometry()) {
             frame = new Frame(renderer);
             frames.put(player, frame);
         }
