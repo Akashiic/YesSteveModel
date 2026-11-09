@@ -13,6 +13,16 @@ public final class BakedGeometry {
     /** Floats per quad: four vertices of (x, y, z, u, v), then the face normal (x, y, z). */
     public static final int QUAD_FLOATS = 4 * 5 + 3;
 
+    /** A cube that may not cull faces: a missing face, a zero or mixed-sign size. */
+    public static final byte SHAPE_OPEN = 0;
+    /** All six faces, size positive on the three axes: back faces may be culled when fully opaque. */
+    public static final byte SHAPE_POSITIVE = 1;
+    /**
+     * All six faces, size negative on the three axes: the winding is mirrored, so back-face culling hides the faces
+     * toward the viewer (upstream's front-face-culled outline shells).
+     */
+    public static final byte SHAPE_NEGATIVE = 2;
+
     /** One bone. */
     public static final class Bone {
 
@@ -27,14 +37,21 @@ public final class BakedGeometry {
         public final float[] quads;
         /** Indices of the child bones. */
         public final int[] children;
+        /** For each quad, the index of its cube among this bone's cubes. */
+        public final int[] cubeOfQuad;
+        /** For each cube of this bone, its {@code SHAPE_*} (decides face culling). */
+        public final byte[] cubeShapes;
 
-        Bone(String name, int parent, float[] pivot, float[] rotation, float[] quads, int[] children) {
+        Bone(String name, int parent, float[] pivot, float[] rotation, float[] quads, int[] children, int[] cubeOfQuad,
+            byte[] cubeShapes) {
             this.name = name;
             this.parent = parent;
             this.pivot = pivot;
             this.rotation = rotation;
             this.quads = quads;
             this.children = children;
+            this.cubeOfQuad = cubeOfQuad;
+            this.cubeShapes = cubeShapes;
         }
 
         public int quadCount() {

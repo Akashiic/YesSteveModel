@@ -85,10 +85,17 @@ public final class GeoBaker {
             float[] pivot = arrayOrDefault(src.pivot, 0, 0, 0);
             float[] rotation = arrayOrDefault(src.rotation, 0, 0, 0);
             QuadBuffer quads = new QuadBuffer();
+            List<Integer> cubeOfQuad = new ArrayList<>();
+            List<Byte> shapes = new ArrayList<>();
             if (src.cubes != null) {
                 for (Cube cube : src.cubes) {
                     if (cube != null) {
-                        bakeCube(cube, texWidth, texHeight, src.inflate / 16f, src.mirror, quads);
+                        int before = quads.size();
+                        boolean complete = bakeCube(cube, texWidth, texHeight, src.inflate / 16f, src.mirror, quads);
+                        for (int q = before; q < quads.size(); q += BakedGeometry.QUAD_FLOATS) {
+                            cubeOfQuad.add(shapes.size());
+                        }
+                        shapes.add(shape(cube, complete));
                         cubes++;
                     }
                 }
@@ -101,7 +108,9 @@ public final class GeoBaker {
                 new float[] { (float) -Math.toRadians(rotation[0]), (float) -Math.toRadians(rotation[1]),
                     (float) Math.toRadians(rotation[2]) },
                 quads.toArray(),
-                toIntArray(children.get(i)));
+                toIntArray(children.get(i)),
+                toIntArray(cubeOfQuad),
+                toByteArray(shapes));
         }
         return new BakedGeometry(texWidth, texHeight, bones, toIntArray(roots), cubes);
     }
@@ -127,7 +136,26 @@ public final class GeoBaker {
         order.add(i);
     }
 
-    private static void bakeCube(Cube cube, float texWidth, float texHeight, float boneInflate, boolean boneMirror,
+    /**
+     * The culling shape of a cube (upstream's visible-face rules): complete means the six faces of the original
+     * structure, whatever their texture; the sign is that of the declared size, and a zero axis gives neither.
+     */
+    static byte shape(Cube cube, boolean complete) {
+        if (!complete) {
+            return BakedGeometry.SHAPE_OPEN;
+        }
+        float[] size = arrayOrDefault(cube.size, 1, 1, 1);
+        if (size[0] > 0 && size[1] > 0 && size[2] > 0) {
+            return BakedGeometry.SHAPE_POSITIVE;
+        }
+        if (size[0] < 0 && size[1] < 0 && size[2] < 0) {
+            return BakedGeometry.SHAPE_NEGATIVE;
+        }
+        return BakedGeometry.SHAPE_OPEN;
+    }
+
+    /** @return whether the cube has its six faces */
+    private static boolean bakeCube(Cube cube, float texWidth, float texHeight, float boneInflate, boolean boneMirror,
         QuadBuffer out) {
         float[] sizeIn = arrayOrDefault(cube.size, 1, 1, 1);
         float[] originIn = arrayOrDefault(cube.origin, 0, 0, 0);
@@ -151,6 +179,7 @@ public final class GeoBaker {
 
         int start = out.size();
         boolean mirroredLayout = boneMirror || cube.mirror;
+        boolean complete = false;
         if (cube.uv != null && cube.uv.perFaceUv != null) {
             perFace(
                 out,
@@ -167,6 +196,7 @@ public final class GeoBaker {
                 p6,
                 p7,
                 p8);
+            complete = out.size() - start == 6 * BakedGeometry.QUAD_FLOATS;
         } else if (cube.uv != null && cube.uv.boxUv != null && cube.uv.boxUv.length >= 2) {
             box(
                 out,
@@ -184,6 +214,7 @@ public final class GeoBaker {
                 p6,
                 p7,
                 p8);
+            complete = true;
         }
 
         float[] rotation = arrayOrDefault(cube.rotation, 0, 0, 0);
@@ -196,6 +227,7 @@ public final class GeoBaker {
                 -Math.toRadians(rotation[1]),
                 Math.toRadians(rotation[2]));
         }
+        return complete;
     }
 
     private static void perFace(QuadBuffer out, UvFaces faces, boolean cubeMirror, boolean mirroredLayout, float tw,
@@ -255,6 +287,14 @@ public final class GeoBaker {
 
     private static int[] toIntArray(List<Integer> list) {
         int[] array = new int[list.size()];
+        for (int i = 0; i < array.length; i++) {
+            array[i] = list.get(i);
+        }
+        return array;
+    }
+
+    private static byte[] toByteArray(List<Byte> list) {
+        byte[] array = new byte[list.size()];
         for (int i = 0; i < array.length; i++) {
             array[i] = list.get(i);
         }
