@@ -5,6 +5,7 @@ import net.minecraft.client.renderer.Tessellator;
 
 import org.lwjgl.opengl.GL11;
 
+import com.akashic.futura.anim.BonePose;
 import com.akashic.futura.geo.BakedGeometry;
 
 /**

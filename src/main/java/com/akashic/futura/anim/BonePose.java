@@ -1,4 +1,4 @@
-package com.akashic.futura.client.render;
+package com.akashic.futura.anim;
 
 /**
  * One frame's animation of every bone of a geometry, on top of the rest pose: rotation (radians, added), position
@@ -27,7 +27,7 @@ public final class BonePose {
         }
     }
 
-    boolean hidden(int bone) {
+    public boolean hidden(int bone) {
         int o = bone * FLOATS;
         return values[o + 6] == 0 && values[o + 7] == 0 && values[o + 8] == 0;
     }
