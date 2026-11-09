@@ -1,40 +1,37 @@
-# eclipse
-bin
-*.launch
+.gradle
 .settings
-.metadata
+/.idea/
+/.vscode/
+/run/
+build/
+/eclipse/
 .classpath
 .project
-.profileconfig.json
-
-# idea
-/out/*
+/bin/
+/config/
+/crash-reports/
+/logs/
+options.txt
+/saves/
+usernamecache.json
+banned-ips.json
+banned-players.json
+eula.txt
+ops.json
+server.properties
+servers.dat
+usercache.json
+whitelist.json
+/out/
+*.iml
 *.ipr
 *.iws
-*.iml
-
-# gradle
-build
-.gradle
-/local.properties
-
-# native
-/src/main/resources/META-INF/native/*
-
-# other
-eclipse
-/run
-/logs
-__pycache__
-
-# hidden files
-/.*
-
-# Files from Forge MDK
-forge*changelog.txt
-
-# dark past
-hs_err_pid*
-
-# ci
-!/.github/
+*.bat
+*.DS_Store
+!gradlew.bat
+.factorypath
+addon.local.gradle
+addon.local.gradle.kts
+addon.late.local.gradle
+addon.late.local.gradle.kts
+layout.json

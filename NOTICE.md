@@ -1,3 +1,26 @@
+# NOTICE
+
+## 3D Futura Engine
+
+3D Futura Engine is a fork of [Yes Steve Model](https://github.com/YesSteveModel/YesSteveModel)
+(branch `dev/1.20`, commit `15c2c25f5b50f54ee099bc474483dc4b588d956d`), Copyright 2026 YesSteveModel contributors,
+licensed under the Apache License 2.0 (see `LICENSE`). It is not affiliated with or endorsed by the Yes Steve Model
+team, and "Yes Steve Model" is not used as the name of this product.
+
+Changes made in this fork:
+
+* the project was moved to Minecraft Forge 1.7.10 (Java 8 bytecode); the upstream 1.20 code remains unchanged on
+  branch `dev/1.20`, and files brought over from it are adapted and say so in their header;
+* the native library and its legacy `.ysm` importer are not used: only the open authoring format is read;
+* the built-in models `wine_fox/09_hailuo`, `wine_fox/10_zhiban` and `wine_fox/17_mini` (All Rights Reserved) were
+  removed; the remaining built-in models are under `assets/futura3d/builtin` and keep the licence and authors written
+  in each `ysm.json` (CC0 or CC BY-NC-SA 4.0); they are not covered by the Apache License;
+* the upstream documentation is kept as reference under `docs/upstream/`.
+
+The upstream NOTICE follows unchanged (paths in it refer to the upstream tree).
+
+---
+
 # 注意
 
 ## 内置模型许可

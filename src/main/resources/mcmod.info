@@ -1,0 +1,21 @@
+{
+	"modListVersion": 2,
+	"modList": [{
+		"modid": "${modId}",
+		"name": "${modName}",
+		"description": "Custom Bedrock player models for 1.7.10. A fork of Yes Steve Model (Apache-2.0); not affiliated with or endorsed by the Yes Steve Model team.",
+		"version": "${modVersion}",
+		"mcversion": "${minecraftVersion}",
+		"url": "https://github.com/Akashiic/YesSteveModel",
+		"updateUrl": "",
+		"authorList": ["Akashiic"],
+		"credits": "Based on Yes Steve Model by the YesSteveModel contributors (Apache-2.0). Built-in models keep their own licences: see each ysm.json.",
+		"logoFile": "",
+		"screenshots": [],
+		"parent": "",
+		"requiredMods": [],
+		"dependencies": [],
+		"dependants": [],
+		"useDependencyInformation": false
+	}]
+}
