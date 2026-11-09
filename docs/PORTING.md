@@ -29,6 +29,33 @@ Base: Yes Steve Model `dev/1.20`, commit `15c2c25` (2026-11-01). O estudo comple
 | `network`, `capability`, `mixin`, `event`, `command`, `config` | ~14 mil | Reescritos para a 1.7.10 | A fazer |
 | `natives` | 4,1 mil | Não vem | Fora |
 
+## Fase 1 (prova): resultado
+
+Feito: `geo/GeoBaker` monta a geometria (portado do `GeoBuilder` do upstream, testado), `model/ModelLoader` lê um modelo
+inteiro de uma `ModelSource`, `client/render/GeometryRenderer` compila cada osso numa display list e aplica só as
+transformações por quadro, e `mixin/mixins/RenderPlayerMixin` troca a chamada interna `super.doRender` do
+`RenderPlayer` (os eventos `RenderPlayerEvent.Pre`/`Post` continuam disparando; sombra, fogo e nome continuam).
+
+![Modelo default de frente](img/fase1-default-frente.png)
+![Modelo default de lado](img/fase1-default-lado.png)
+![30 cópias](img/fase1-default-30-copias.png)
+
+Harness (`dev/RenderHarness`, só com `./gradlew runClient -Pharness` e um arquivo `run/client/futura3d-harness`), em
+**Mesa llvmpipe (renderização por software, na CPU)**, 854x480:
+
+| Modelo | Cubos (quads) | Quadro sem cópias | +1 cópia | +10 cópias | +30 cópias |
+|---|---|---|---|---|---|
+| `default` | 172 (1032) | 23,4 ms | 30,2 ms | 37,4 ms | 39,9 ms |
+| `wine_fox/18_wedding` | 1554 (6817) | 36,7 ms | 38,3 ms | 46,7 ms | 73,3 ms |
+| `wine_fox/08_sta` | 4533 (26564) | 48,9 ms | 54,2 ms | 96,9 ms | 186,0 ms |
+
+* Os números são de rasterização por software: servem para comparar entre si, não para prever uma placa de vídeo.
+  O quadro "sem cópias" já inclui o próprio jogador com o modelo perto da câmera (preenchimento de tela).
+  **A checar** numa máquina real e com Angelica.
+* Na pose de repouso aparecem os adereços que as animações escondem (a espada gigante da Wedding, o tanque da Sta):
+  eles têm escala 0 numa `pre_parallel`. O renderizador já pula ossos com escala 0, então com a fase 2 o custo real
+  desses modelos cai.
+
 ## Fases
 
 1. **Prova:** ler um modelo CC0 embutido, assar em display lists, desenhar no lugar do jogador local; medir ms/quadro

@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8.5-GTNH",
+  "package": "com.akashic.futura.mixin.mixins",
+  "refmap": "mixins.futura3d.refmap.json",
+  "target": "@env(DEFAULT)",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [],
+  "client": [
+    "RenderPlayerMixin"
+  ],
+  "server": []
+}

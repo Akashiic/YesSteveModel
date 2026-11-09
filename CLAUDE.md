@@ -34,4 +34,9 @@ this port follows).
 * Pure logic (format, geometry, animation, Molang, physics) has no Minecraft classes and is unit-tested.
 * `./gradlew spotlessApply build`: spotless must pass. Maven Central may answer 429 through the session proxy; rerun
   with `--max-workers=1` and retry.
+* **Render harness** (`com.akashic.futura.dev`, never in the release jar: the `jar` task packs it only with
+  `-Pharness`): with a `run/client/futura3d-harness` file, `./gradlew runClient -Pharness` opens a flat world, saves
+  `run/client/screenshots/futura3d-*.png` and writes timings to `run/client/futura3d-harness.txt`, then quits.
+  Headless: `xvfb-run -a -s "-screen 0 1280x720x24 +extension RANDR"` with `LIBGL_ALWAYS_SOFTWARE=1`; LWJGL 2 needs
+  the `xrandr` program (`apt-get install -y x11-xserver-utils`).
 * What is not verified in game is written as "to be checked" in the docs.
