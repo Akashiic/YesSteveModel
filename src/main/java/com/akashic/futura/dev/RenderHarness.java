@@ -13,7 +13,10 @@ import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.init.Items;
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ScreenShotHelper;
@@ -79,10 +82,75 @@ public final class RenderHarness {
             PlayerModels.INSTANCE.setEnabled(false);
             view(2, 0);
         });
+        animSteps("default", "default");
+        animSteps("wedding", "wine_fox/18_wedding");
         copySteps("default", "default");
         // Models of the level the port targets (1554 cubes) and a stress case (4533 cubes).
         copySteps("wedding", "wine_fox/18_wedding");
         copySteps("sta", "wine_fox/08_sta");
+    }
+
+    // Animation states: keys held every tick by the harness, a sword swung every 10 ticks.
+    private boolean holdForward;
+    private boolean holdSneak;
+    private boolean holdSprint;
+    private boolean swingSword;
+
+    private void animSteps(String label, String builtin) {
+        step(label + "-idle", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use(builtin);
+            copies = 0;
+            keys(false, false, false, false);
+            view(2, 0);
+        });
+        step(label + "-walk", () -> {
+            keys(true, false, false, false);
+            view(2, 0);
+        });
+        step(label + "-run", () -> {
+            keys(true, false, true, false);
+            view(2, 0);
+        });
+        step(label + "-sneak", () -> {
+            keys(true, true, false, false);
+            view(2, 0);
+        });
+        step(label + "-sword", () -> {
+            keys(false, false, false, true);
+            EntityPlayerMP p = serverPlayer(Minecraft.getMinecraft());
+            if (p != null) {
+                p.inventory.setInventorySlotContents(p.inventory.currentItem, new ItemStack(Items.diamond_sword));
+            }
+            view(2, 0);
+        });
+        step(label + "-rest", () -> keys(false, false, false, false));
+    }
+
+    private void keys(boolean forward, boolean sneak, boolean sprint, boolean sword) {
+        holdForward = forward;
+        holdSneak = sneak;
+        holdSprint = sprint;
+        swingSword = sword;
+        applyKeys();
+        if (!sword) {
+            EntityPlayerMP p = serverPlayer(Minecraft.getMinecraft());
+            if (p != null) {
+                p.inventory.setInventorySlotContents(p.inventory.currentItem, null);
+            }
+        }
+    }
+
+    private void applyKeys() {
+        Minecraft mc = Minecraft.getMinecraft();
+        KeyBinding.setKeyBindState(mc.gameSettings.keyBindForward.getKeyCode(), holdForward);
+        KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), holdSneak);
+        if (mc.thePlayer != null) {
+            mc.thePlayer.setSprinting(holdSprint && holdForward);
+            if (swingSword && mc.thePlayer.ticksExisted % 10 == 0) {
+                mc.thePlayer.swingItem();
+            }
+        }
     }
 
     private void copySteps(String label, String builtin) {
@@ -179,6 +247,7 @@ public final class RenderHarness {
                 .run();
             return;
         }
+        applyKeys();
         if (++ticks >= SETTLE_TICKS) {
             if (names.get(index)
                 .contains("-copies-")) {
