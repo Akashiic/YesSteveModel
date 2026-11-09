@@ -75,6 +75,19 @@ public final class RenderHarness {
     private long[] drawNanos = new long[MEASURE_FRAMES];
 
     public static void install() throws FileNotFoundException {
+        File file = new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness");
+        try {
+            String[] words = new String(
+                java.nio.file.Files.readAllBytes(file.toPath()),
+                java.nio.charset.StandardCharsets.UTF_8).trim()
+                    .split("\\s+");
+            if (words[0].equals("connect")) {
+                ConnectHarness.install(words);
+                return;
+            }
+        } catch (java.io.IOException e) {
+            // run every step
+        }
         RenderHarness harness = new RenderHarness();
         FMLCommonHandler.instance()
             .bus()
