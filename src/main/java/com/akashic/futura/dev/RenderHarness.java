@@ -99,7 +99,72 @@ public final class RenderHarness {
         copySteps("wedding", "wine_fox/18_wedding");
         copySteps("sta", "wine_fox/08_sta");
         itemSteps();
+        serverSteps();
         onlySteps();
+    }
+
+    // Phase 4a: a server model through the integrated server's protocol. Needs a model folder or zip in
+    // run/client/config/futura3d/models/ (outside git), e.g. a copy of builtin/misc/1_alex named futura_test.
+    private static final String TEST_MODEL = "futura_test";
+
+    private void serverSteps() {
+        step("server-before", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            copies = 0;
+            keys(false, false, false, false);
+            report("server: " + com.akashic.futura.client.net.ClientNetwork.INSTANCE.status());
+            com.akashic.futura.server.ModelServer server = com.akashic.futura.server.ForgeModelServer.current();
+            if (server != null) {
+                for (String line : server.list()) {
+                    report("server list: " + line);
+                }
+            }
+            view(2, 0);
+        });
+        step("server-set", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            MinecraftServer server = MinecraftServer.getServer();
+            // as the console (permission level 4): the harness world has no cheats
+            server.getCommandManager()
+                .executeCommand(server, "futura3d set " + mc.thePlayer.getCommandSenderName() + " " + TEST_MODEL);
+            view(2, 0);
+        });
+        step("server-after", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            report("server: " + com.akashic.futura.client.net.ClientNetwork.INSTANCE.status());
+            File cache = new File(mc.mcDataDir, "futura3d/cache");
+            String[] cached = cache.list();
+            report("server: cache files " + (cached == null ? 0 : cached.length));
+            String key;
+            try {
+                key = com.akashic.futura.client.ModelSelection.INSTANCE.keyOf(mc.thePlayer.getUniqueID());
+            } catch (UnsupportedOperationException e) {
+                key = "(ModelSelection not implemented yet)";
+            }
+            report("server: local player's key " + key);
+            com.akashic.futura.server.ModelServer server = com.akashic.futura.server.ForgeModelServer.current();
+            if (server != null) {
+                report("server: state on the server " + server.stateOf(mc.thePlayer.getUniqueID()).key);
+            }
+            view(2, 0);
+        });
+        step("server-emote", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            MinecraftServer server = MinecraftServer.getServer();
+            server.getCommandManager()
+                .executeCommand(server, "futura3d play " + mc.thePlayer.getCommandSenderName() + " extra0");
+            view(2, 0);
+        });
+        step("server-reset", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            MinecraftServer server = MinecraftServer.getServer();
+            server.getCommandManager()
+                .executeCommand(server, "futura3d play " + mc.thePlayer.getCommandSenderName() + " stop");
+            server.getCommandManager()
+                .executeCommand(server, "futura3d set " + mc.thePlayer.getCommandSenderName() + " default");
+            report("server: " + com.akashic.futura.client.net.ClientNetwork.INSTANCE.status());
+        });
     }
 
     // Animation states: keys held every tick by the harness, a sword swung every 10 ticks.

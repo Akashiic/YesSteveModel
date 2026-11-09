@@ -3,10 +3,14 @@ package com.akashic.futura;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.akashic.futura.server.ForgeModelServer;
+
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 
 /**
  * 3D Futura Engine: custom Bedrock player models for Minecraft 1.7.10, a fork of Yes Steve Model (Apache-2.0).
@@ -32,5 +36,16 @@ public final class Futura3D {
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
         proxy.init(event);
+    }
+
+    /** Dedicated and integrated servers: the server models, selections and the command. */
+    @Mod.EventHandler
+    public void serverStarting(FMLServerStartingEvent event) {
+        ForgeModelServer.start(event);
+    }
+
+    @Mod.EventHandler
+    public void serverStopping(FMLServerStoppingEvent event) {
+        ForgeModelServer.stop();
     }
 }

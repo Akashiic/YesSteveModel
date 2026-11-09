@@ -6,11 +6,12 @@ import net.minecraft.client.Minecraft;
 
 import com.akashic.futura.CommonProxy;
 import com.akashic.futura.Futura3D;
+import com.akashic.futura.client.net.ClientNetwork;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
-/** Client-side setup: loads the models and, in development, the render harness. */
+/** Client-side setup: loads the models, joins the model protocol and, in development, the render harness. */
 public class ClientProxy extends CommonProxy {
 
     @Override
@@ -23,6 +24,7 @@ public class ClientProxy extends CommonProxy {
         super.init(event);
         PlayerModels.INSTANCE.load();
         EmoteKeys.register();
+        ClientNetwork.register();
         if (new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness").isFile()) {
             try {
                 // Development only: the dev package is not in release jars.
