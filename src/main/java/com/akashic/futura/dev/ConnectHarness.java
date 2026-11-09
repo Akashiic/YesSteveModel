@@ -99,7 +99,10 @@ public final class ConnectHarness {
         String name = mc.thePlayer.getCommandSenderName();
         mc.gameSettings.thirdPersonView = 2;
         mc.thePlayer.rotationPitch = 10;
-        if (t == 60) {
+        if (t == 20) {
+            command("/time set 6000");
+            command("/weather clear");
+        } else if (t == 60) {
             report("t=3s " + ClientNetwork.INSTANCE.status());
             command("/futura3d list");
             command("/futura3d set " + name + " " + model);

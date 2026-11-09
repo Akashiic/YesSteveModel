@@ -27,11 +27,17 @@ public abstract class Message {
         /** Changes on every reload; entries and the end carry it. */
         public final int revision;
         public final int modelCount;
+        /**
+         * The receiving player's UUID on the server. In offline mode (common on Thermos) it differs from the UUID of
+         * the client's own session, so the client maps states and emotes about this UUID to its local player.
+         */
+        public final UUID self;
 
-        public ServerHello(int version, int revision, int modelCount) {
+        public ServerHello(int version, int revision, int modelCount, UUID self) {
             this.version = version;
             this.revision = revision;
             this.modelCount = modelCount;
+            this.self = self;
         }
 
         @Override
@@ -189,16 +195,26 @@ public abstract class Message {
         }
     }
 
-    /** The local player chose a model in the picker (the server validates it and answers with the state). */
+    /**
+     * The local player chose a model in the picker (the server validates it and answers with the state), or, with
+     * {@code initial}, the client's saved local choice sent on joining: used only if the server has nothing saved for
+     * the player.
+     */
     public static final class Select extends Message {
 
         /** A model key, or null for the default model. */
         public final String key;
         public final String texture;
+        public final boolean initial;
 
         public Select(String key, String texture) {
+            this(key, texture, false);
+        }
+
+        public Select(String key, String texture, boolean initial) {
             this.key = key;
             this.texture = texture;
+            this.initial = initial;
         }
 
         @Override

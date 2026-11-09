@@ -26,7 +26,7 @@ Base: Yes Steve Model `dev/1.20`, commit `15c2c25` (2026-11-01). O estudo comple
 | `geckolib3` (controladores, processador, ossos) | 6,3 mil | Lógica vem; desenho reescrito | **Lógica portada** em `anim` (controladores Bedrock: fase 5) |
 | `expression` (Molang) | 10,7 mil | Gramática (`frontend/MolangSourceParser`) e `math.*` (`MathBuiltins`, `ControlBuiltins`) adaptados em `molang/`; motor novo (interpretador de árvore) | **Interpretador feito**; funções do hospedeiro (`query`, `ysm`, `ctrl`...) a fazer na animação |
 | `client` (render, GUI, controladores do jogador) | 21,4 mil | Lógica dos controladores vem; render e GUI reescritos | A fazer |
-| `network`, `capability`, `mixin`, `event`, `command`, `config` | ~14 mil | Reescritos para a 1.7.10 | A fazer |
+| `network`, `capability`, `mixin`, `event`, `command`, `config` | ~14 mil | Reescritos para a 1.7.10 | **Rede e comandos feitos** na fase 4a (protocolo próprio, não o do upstream) |
 | `natives` | 4,1 mil | Não vem | Fora |
 
 ## Fase 1 (prova): resultado
@@ -357,6 +357,178 @@ dele (o caminho do quadro anterior); a linha com o jogador dormindo ou montado; 
 
 Testes: 226.
 
+## Fase 4a: servidor, protocolo e transferência de modelos
+
+O servidor (dedicado, ou o integrado do singleplayer, pelo mesmo caminho) lê modelos abertos de
+`config/futura3d/models/`, manda o catálogo a quem tem o mod, transfere os arquivos que o cliente não tem no cache,
+guarda o modelo e a textura de cada jogador por UUID e repassa emotes. Cliente vanilla não recebe nada; cliente com o
+mod num servidor sem ele manda um hello que ninguém responde e fica só com as escolhas locais.
+
+### Canal
+
+Um canal FML orientado a eventos, `futura3d:model` (14 caracteres; o limite do Bukkit 1.7 é 16), em `ModNetwork`.
+Por que FML e não `S3FPacketCustomPayload`/`C17PacketCustomPayload` crus: o `NetworkDispatcher` do FML fica no
+pipeline netty da conexão no Forge, no Thermos e no Crucible, e entrega os pacotes de canais registrados ao mod antes do
+handler vanilla (que o Thermos reescreve para alimentar o plugin messaging do Bukkit), nos dois sentidos; o C17 cru
+precisaria de um gancho em `NetHandlerPlayServer.processVanilla250Packet`, justamente o método que o Thermos troca. Um
+`FMLProxyPacket` não tem prioridade, então vai para a fila da `NetworkManager` e é tratado na thread principal (do
+servidor ou do cliente): nada de travas.
+
+O cliente só fala depois de entrar no mundo (primeiro tick com `getNetHandler()`), com um hello; o servidor só manda
+algo a quem mandou hello com a mesma versão. Servidor sem o mod ignora o canal desconhecido (vanilla, Forge e o
+Messenger do Bukkit fazem isso).
+
+### Protocolo (`net/`, Java puro, testado)
+
+Cada payload: byte de tipo, depois os campos em `DataOutput` (big endian); string = tamanho em bytes (u16) + UTF-8
+estrito; string anulável = byte 0/1 + string; hash = 32 bytes crus; UUID = dois longs. Nunca serialização Java, nunca
+Molang ou código para executar (os arquivos do modelo são dados, lidos pelo carregador de sempre).
+
+| Tipo | Sentido | Campos |
+|---|---|---|
+| 1 `S_HELLO` | S→C | versão, revisão do catálogo, nº de modelos, UUID do jogador no servidor |
+| 2 `S_MODEL` | S→C | revisão, id, nome, dica, licença, autores, flags (restrito, bloqueado para este jogador), arquivos (caminho, tamanho, sha256) |
+| 3 `S_CATALOG_END` | S→C | revisão: o catálogo novo substitui o anterior |
+| 4 `S_CHUNK` | S→C | hash, tamanho total, offset, dados (≤ 30 656 bytes, payload < 30 KiB) |
+| 5 `S_UNAVAILABLE` | S→C | hash que o servidor não tem mais |
+| 6 `S_STATE` | S→C | até 96 × (UUID, chave ou nulo, textura ou nulo) |
+| 7 `S_EMOTE` | S→C | UUID, animação ou nulo (parar) |
+| 64 `C_HELLO` | C→S | versão |
+| 65 `C_REQUEST` | C→S | 1 a 256 hashes |
+| 66 `C_SELECT` | C→S | chave ou nulo, textura ou nulo, `initial` (a escolha local gravada, mandada ao entrar) |
+| 67 `C_EMOTE` | C→S | animação ou nulo |
+
+* Versão `Protocol.VERSION = 1`. Os dois hellos começam sempre com tipo + versão: uma versão futura reconhece a
+  diferença. Versões diferentes: o servidor responde só com o próprio hello e o cliente fica com o local.
+* Chaves: `builtin:<pasta>` (o cliente tem; nunca é transferido) e `server:<id>` (64 hex). Id do modelo = SHA-256 da
+  lista canônica de arquivos (caminho UTF-8, byte 0, tamanho, hash, em ordem de caminho): dois servidores com os mesmos
+  arquivos dão o mesmo id, e o cliente confere o id contra a lista.
+* O hello traz o UUID do jogador no servidor: num servidor em modo offline (comum com Thermos) ele é diferente do UUID
+  da sessão do cliente, e o cliente traduz estados e emotes desse UUID para o jogador local. Achado no teste com o
+  servidor dedicado: sem isso o próprio jogador nunca trocava de modelo.
+* `C_SELECT` com `initial`: o cliente manda `ModelSelection.localKey()`/`localTexture()` ao entrar; o servidor só usa
+  se não tem nada gravado para o jogador (nem a escolha dele, nem a de um operador).
+
+Limites conferidos na decodificação, antes de alocar: payload ≤ 32 767 bytes e nada sobrando no fim, tipo conhecido e
+do lado certo, ≤ 1024 modelos, ≤ 512 arquivos por modelo, caminho ≤ 256 bytes, limpo (`ModelSource.clean` não muda
+nada, sem `..`, `//`, `\`, `/` no início ou fim) e sem repetição, `ysm.json` presente, arquivo ≤ 16 MiB, modelo ≤ 64 MiB,
+catálogo ≤ 1 GiB baixado, nome ≤ 256 bytes, dica ≤ 2048, licença ≤ 128, ≤ 16 autores de ≤ 128, chave ≤ 128 e com forma
+válida, textura e animação ≤ 128 sem caracteres de controle, chunk dentro do arquivo. Depois de 32 erros de protocolo de
+um lado, as mensagens dele passam a ser ignoradas.
+
+### Repositório do servidor (`server/ModelRepository`)
+
+`config/futura3d/models/<nome>/` ou `<nome>.zip` (qualquer um seleciona) e `config/futura3d/models/auth/...`
+(restritos: precisa de permissão). Formato aberto, `ysm.json` spec 2; um zip com tudo dentro de uma pasta é lido dessa
+pasta. Qualquer outra coisa é pulada com uma linha no log, `.ysm` inclusive ("encrypted .ysm exports are not
+supported"); nomes com espaço, nomes repetidos e modelos com os mesmos arquivos de outro também.
+
+Cada modelo é lido para a memória com limites (`net/ModelLimits`, configuráveis em `config/futura3d/server.properties`):
+só arquivos `json png jpg jpeg webp avif ogg molang lang txt` (o resto, como `.bbmodel`, fica fora), ocultos e
+`__MACOSX` fora, links simbólicos não seguidos, profundidade 16, ≤ 512 arquivos, ≤ 16 MiB por arquivo contando o que é
+lido de verdade (bomba de zip para no limite), ≤ 32 MiB por modelo, ≤ 4096 entradas de zip olhadas, entrada de zip que
+sai do modelo recusa o modelo (`ModelSource.clean`); PNG e JPEG ≤ 4096 px de lado pelo cabeçalho, sem decodificar; JSON
+percorrido em streaming (profundidade ≤ 64, strings ≤ 64 Ki caracteres, onde moram as expressões Molang, ≤ 4 M tokens)
+antes do Gson; texto (`.molang`) ≤ 256 KiB. Depois o modelo é carregado de verdade com `model/ModelLoader` e conferido:
+≤ 4096 ossos, ≤ 32 768 cubos, ≤ 4096 animações. A entrada do catálogo tem de caber numa mensagem (< 30 KiB).
+Memória total ≤ 512 MiB. Os 24 modelos embutidos passam nos limites padrão (teste).
+
+`/futura3d reload` relê numa thread própria; o tick seguinte troca os modelos, limpa as filas de envio, manda o
+catálogo novo a todos e reenvia os estados (o id muda quando os arquivos mudam; a escolha gravada segue o modelo pelo
+nome).
+
+### Seleção, permissões e comandos
+
+`config/futura3d/players/<uuid>.json` (escrito num temporário e movido no lugar; arquivo ilegível vira `.bad`):
+`builtin` ou `model` (nome), `texture`, `forced`, `grants`. Restaurado ao entrar e mandado a todos com o mod (o estado
+de todo jogador online vai para todo cliente com o mod, não só para quem o rastreia: assim quem chega perto já sabe).
+Textura que o modelo não tem vira a padrão. Escolha inválida do cliente: o servidor devolve só a ele o estado atual.
+
+A permissão está num método só, `ModelServer.canUse`: restrito precisa de grant. Plugins de permissão do Bukkit ficam
+fora (no Thermos/Crucible a ponte iria ali).
+
+| Comando (nível 2) | O que faz |
+|---|---|
+| `/futura3d list` | modelos, arquivos, bytes, id, texturas; `[auth]` nos restritos |
+| `/futura3d reload` | relê os modelos sem reiniciar |
+| `/futura3d set <jogador> <modelo\|default\|builtin:<pasta>> [textura]` | escolha do operador, vale mesmo restrito sem grant; jogador offline por nome ou UUID |
+| `/futura3d auth <jogador> add\|remove <modelo>` | grant; reenvia o catálogo (o `locked` muda) |
+| `/futura3d play <jogador> <animação\|stop>` | emote para quem o vê e para ele |
+
+Modelo por nome da pasta/zip ou pelo começo do id (≥ 8 hex). Taxa por jogador: 1 seleção/s (rajada 4), 2 emotes/s
+(rajada 6).
+
+### Transferência e cache do cliente
+
+O servidor manda o catálogo inteiro a cada jogador (modelos bloqueados também: ele precisa desenhá-los nos outros), com
+o `locked` dele. O cliente (`net/ClientSession`, puro) pede só os hashes que não estão em
+`<mcDataDir>/futura3d/cache/<sha256>` (`net/DiskFileCache`: grava num temporário e move, confere o hash a cada
+leitura e apaga o arquivo corrompido), no máximo 16 arquivos ou 8 MiB pendentes por vez. O servidor (`TransferQueue`)
+manda os pedidos em ordem, em pedaços desde o offset 0, com balde de fichas por jogador (`bytesPerSecondPerPlayer`,
+padrão 512 KiB/s). O cliente remonta com o tamanho do catálogo, recusa pedaço fora de ordem, confere o SHA-256, grava,
+e quando todos os arquivos de um modelo estão lá confere os arquivos de novo por tipo (`ModelLimits.checkFiles`, numa
+thread própria) e registra `ModelRegistry.registerServerModel("server:" + id, new CachedModelSource(...), locked)`
+(`net/CachedModelSource`, que lê do cache conferindo o hash). Catálogo novo: `clearServerModels()` e os modelos voltam
+do cache. Ao sair: `setHandler(null)`, `clearServerModels()`, `clearRemote()`, ouvinte de emotes removido.
+
+Estados chegam em `ModelSelection.select`; enquanto o servidor tem o mod, o handler manda a escolha do seletor ao
+servidor (que valida e devolve o estado). Emotes: o `EmoteListener` manda play/stop; o servidor repassa a quem rastreia
+o jogador; o cliente chama `PlayerModels.animator(jogador).playExtra/stopExtra`.
+
+| Arquivo | |
+|---|---|
+| `ModNetwork` | canal FML, pacote ↔ bytes |
+| `net/Protocol`, `Message`, `MessageCodec`, `Sha256`, `FileRef`, `CatalogEntry` | protocolo |
+| `net/ClientSession`, `FileCache`, `DiskFileCache`, `CachedModelSource`, `ModelLimits` | lado do cliente sem Minecraft, limites comuns |
+| `server/ModelRepository`, `ServerModel`, `PlayerStore`, `TransferQueue`, `BuiltinModels`, `ModelServer` | lado do servidor sem Minecraft |
+| `server/ForgeModelServer`, `FuturaCommand` | cola com o Forge (só classes comuns: o dedicado carrega) |
+| `client/net/ClientNetwork` | cola do cliente |
+| `dev/ConnectHarness` | harness: `connect <host>:<porta> [modelo]` em `run/client/futura3d-harness` entra num servidor dedicado |
+
+### Resultado
+
+Servidor dedicado (`./gradlew runServer`, Java 8, modo offline, `config/futura3d/models/futura_test` = cópia do
+embutido CC0 `misc/1_alex`, `auth/steve` = cópia de `misc/2_steve`, e um `encrypted.ysm` falso) e um cliente
+(`runClient -Pharness`, modo `connect`), pelo caminho de rede de verdade (o singleplayer passa os pacotes como objetos,
+sem serializar):
+
+![Servidor dedicado: /futura3d set troca o jogador para o modelo do servidor](img/fase4a-servidor-dedicado.png)
+![/futura3d play: o emote chega ao próprio jogador](img/fase4a-emote-servidor.png)
+
+* Log do servidor: `Skipped encrypted.ysm: encrypted .ysm exports are not supported`, `Loaded futura_test: Alex (...,
+  11 files, 326123 bytes)`, `Loaded auth/steve`.
+* Cliente com cache vazio: catálogo de 2 modelos, 641 553 bytes baixados em 1 a 2 s (o limite padrão é 512 KiB/s), 19 arquivos
+  no cache (os avatares repetidos entre os dois modelos vão uma vez só), os dois modelos registrados e carregados pelo
+  `ModelRegistry`. `/futura3d set` → a chave do jogador local vira `server:c0b19563...` e ele aparece com o modelo;
+  `/futura3d play ... extra0` → `isPlayingExtra()` verdadeiro, `stop` → falso; `auth add/remove` e `reload` reenviam
+  o catálogo e os modelos voltam do cache sem baixar de novo.
+* `./gradlew runServer21` (Java 21.0.11 com lwjgl3ify e Hodgepodge): o dedicado sobe, lê os modelos e não carrega
+  classe de cliente. O cliente de dev não entra nele (o servidor exige o gtnhlib que o cliente não tem), então o
+  caminho de rede foi testado com o servidor Java 8.
+* Singleplayer (harness, `only server`): os passos `server-*` trocam o jogador para o modelo do servidor integrado
+  pelo mesmo caminho.
+* Uma das conexões do cliente de dev ao dedicado ficou parada em "Connecting" sem rastro no servidor; repetida, entrou.
+
+**A checar**:
+
+* Num Thermos/Crucible de verdade com Java 21: o canal FML convivendo com plugins Bukkit (o registro `REGISTER` do
+  canal, plugins que mexem em plugin messages), o modo offline e o online.
+* Vários jogadores ao mesmo tempo: troca de modelo e emote de outro jogador vistos ao vivo (os testes de unidade
+  cobrem com clientes falsos; no jogo só houve um jogador). Quem chega perto no meio de um emote não o vê (o repasse é
+  só para quem já rastreia).
+* Links lentos e muitos jogadores baixando juntos: não há limite global, só por jogador; os pedaços disputam a conexão
+  com os pacotes do jogo.
+* Cliente vanilla e cliente com o mod em servidor sem o mod (pelo código, nada é mandado a quem não manda hello e o
+  hello cai num canal desconhecido; não testado com um cliente vanilla de verdade).
+* Pastas de modelos grandes: a leitura do início é síncrona (o reload não); um servidor com centenas de modelos atrasa
+  a partida. O cache do cliente não tem limite de tamanho nem limpeza.
+* A escolha pelo seletor no jogo indo ao servidor por clique (o handler e o `C_SELECT` estão testados com clientes
+  falsos; no harness a troca foi pelo comando).
+
+Testes: 313 (60 desta fase: codec e limites, sessão do cliente, cache em disco, limites com os 24 embutidos,
+repositório com pastas, zips, zip slip, bomba de zip e links, gravação por UUID, fila com limite de taxa e o servidor
+falando com sessões de cliente reais pelo codec).
+
 ## Fase 4b: vários modelos no cliente e o seletor
 
 Cada jogador é desenhado com o seu modelo. A camada de rede (fase 4a, outro trabalho: pacotes `net` e `server`) só
@@ -443,7 +615,9 @@ modelos CC0 embutidos), o seletor com eles, e a volta ao `builtin:default` depoi
   moldura, como o do upstream, mas a cor e a proporção não foram comparadas), o ângulo da câmera dos cartões
   (aqui de frente para pose autoral e a 20° para idle) e a luz da prévia.
 * Com a rede (fase 4a): o handler, `locked` vindo do servidor, a troca de modelo de outro jogador ao vivo e
-  `clearServerModels` ao desconectar; aqui só foram exercitados pelo harness, sem rede.
+  `clearServerModels` ao desconectar; aqui só foram exercitados pelo harness, sem rede. Com a fase 4a, o registro
+  dos modelos do servidor, `clearServerModels` a cada catálogo novo e a troca do próprio jogador foram vistos com um
+  servidor dedicado; a troca de outro jogador ao vivo segue a checar.
 * Tempo de carga fora do harness (aqui, de 10 a 360 ms por modelo nas threads de carga, a maior parte na primeira
   carga, com o JIT frio) e o custo do seletor com dez prévias animadas numa máquina fraca.
 * Nomes CJK e com códigos `§` nos cartões em outras escalas de interface; um zip de verdade arrastado por um usuário

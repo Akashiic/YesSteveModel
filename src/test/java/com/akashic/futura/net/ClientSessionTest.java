@@ -17,12 +17,15 @@ import org.junit.jupiter.api.Test;
 
 class ClientSessionTest {
 
+    static final UUID SELF = new UUID(7, 7);
+
     /** Records what the session says. */
     static final class Recorder implements ClientSession.Listener, ClientSession.Output {
 
         final List<Message> sent = new ArrayList<>();
         final List<String> events = new ArrayList<>();
         final List<CatalogEntry> ready = new ArrayList<>();
+        final List<UUID> players = new ArrayList<>();
 
         @Override
         public void send(Message m) {
@@ -62,11 +65,13 @@ class ClientSessionTest {
 
         @Override
         public void state(UUID p, String key, String texture) {
+            players.add(p);
             events.add("state " + key + " " + texture);
         }
 
         @Override
         public void emote(UUID p, String name) {
+            players.add(p);
             events.add("emote " + name);
         }
 
@@ -112,7 +117,7 @@ class ClientSessionTest {
     }
 
     static void catalog(ClientSession s, int revision, CatalogEntry... entries) {
-        s.handle(new Message.ServerHello(Protocol.VERSION, revision, entries.length));
+        s.handle(new Message.ServerHello(Protocol.VERSION, revision, entries.length, SELF));
         for (CatalogEntry e : entries) {
             s.handle(new Message.ModelEntry(revision, e));
         }
@@ -236,9 +241,9 @@ class ClientSessionTest {
         assertTrue(r.events.isEmpty());
         assertFalse(s.connected());
 
-        s.handle(new Message.ServerHello(Protocol.VERSION + 1, 1, 0));
+        s.handle(new Message.ServerHello(Protocol.VERSION + 1, 1, 0, SELF));
         assertEquals(Arrays.asList("incompatible " + (Protocol.VERSION + 1)), r.events);
-        s.handle(new Message.ServerHello(Protocol.VERSION, 1, 0));
+        s.handle(new Message.ServerHello(Protocol.VERSION, 1, 0, SELF));
         s.handle(new Message.Emote(p, "x"));
         assertEquals(1, r.events.size());
     }
@@ -260,6 +265,22 @@ class ClientSessionTest {
     }
 
     @Test
+    void mapsThePlayersServerUuidToTheLocalOne() {
+        Recorder r = new Recorder();
+        ClientSession s = new ClientSession(new MemoryFileCache(), r, r);
+        UUID local = UUID.randomUUID();
+        s.setLocalPlayer(local);
+        catalog(s, 1);
+        UUID other = UUID.randomUUID();
+        java.util.List<Message.PlayerState> states = new ArrayList<>();
+        states.add(new Message.PlayerState(SELF, "builtin:default", null));
+        states.add(new Message.PlayerState(other, null, null));
+        s.handle(new Message.PlayerStates(states));
+        s.handle(new Message.Emote(SELF, "wave"));
+        assertEquals(Arrays.asList(local, other, local), r.players);
+    }
+
+    @Test
     void aNewCatalogReplacesTheOldOne() {
         Recorder r = new Recorder();
         ClientSession s = new ClientSession(new MemoryFileCache(), r, r);
@@ -267,7 +288,7 @@ class ClientSessionTest {
         FileRef m2 = file("ysm.json", "{\"a\":2}".getBytes());
         catalog(s, 1, model("one", m1));
         // entries of another revision are ignored; the end of revision 2 commits only its own entries
-        s.handle(new Message.ServerHello(Protocol.VERSION, 2, 1));
+        s.handle(new Message.ServerHello(Protocol.VERSION, 2, 1, SELF));
         s.handle(new Message.ModelEntry(1, model("stale", m1)));
         s.handle(new Message.ModelEntry(2, model("two", m2)));
         s.handle(new Message.CatalogEnd(2));

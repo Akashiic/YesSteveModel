@@ -292,6 +292,13 @@ public final class ModelServer {
                 break;
             case Protocol.C_SELECT: {
                 Message.Select select = (Message.Select) m;
+                if (select.initial) {
+                    // The client's saved choice: only for a player the server knows nothing about.
+                    if (select.key != null && !hasSavedModel(from) && s.selects.take()) {
+                        select(from, select.key, select.texture);
+                    }
+                    break;
+                }
                 if (!s.selects.take() || !select(from, select.key, select.texture)) {
                     sendStates(from, Collections.singletonList(stateOf(from)));
                 }
@@ -310,7 +317,7 @@ public final class ModelServer {
     private void hello(UUID from, Session s, Message.ClientHello h) {
         if (h.version != Protocol.VERSION) {
             // Our hello alone tells the client which version we speak; nothing else follows.
-            net.send(from, new Message.ServerHello(Protocol.VERSION, snapshot.revision, 0));
+            net.send(from, new Message.ServerHello(Protocol.VERSION, snapshot.revision, 0, from));
             return;
         }
         if (s.hello) {
@@ -327,7 +334,7 @@ public final class ModelServer {
 
     private void sendCatalog(UUID player) {
         ModelRepository.Snapshot s = snapshot;
-        net.send(player, new Message.ServerHello(Protocol.VERSION, s.revision, s.models.size()));
+        net.send(player, new Message.ServerHello(Protocol.VERSION, s.revision, s.models.size(), player));
         for (ServerModel m : s.models) {
             net.send(player, new Message.ModelEntry(s.revision, m.entry.withLocked(!canUse(player, m))));
         }
@@ -363,6 +370,11 @@ public final class ModelServer {
 
     private static String texture(List<String> stems, String wanted) {
         return wanted != null && stems.contains(wanted) ? wanted : null;
+    }
+
+    private boolean hasSavedModel(UUID player) {
+        PlayerStore.Record r = store.get(player);
+        return r.builtin != null || r.model != null;
     }
 
     /** A player's own choice from the picker. */

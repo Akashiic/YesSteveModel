@@ -306,6 +306,32 @@ class ModelServerTest {
     }
 
     @Test
+    void theSavedLocalChoiceOnlyFillsAnEmptyRecord() throws ModelServer.CommandError {
+        Client ca = connect(a);
+        ca.send(new Message.Select("builtin:misc/1_alex", null, true));
+        deliver();
+        assertEquals("builtin:misc/1_alex", ca.keys.get(a));
+        // something is saved now: a later initial choice does not override it, nor an operator's
+        ca.send(new Message.Select("builtin:default", null, true));
+        deliver();
+        assertEquals("builtin:misc/1_alex", ca.keys.get(a));
+        server.set(a, "alex", null);
+        deliver();
+        ca.send(new Message.Select("builtin:default", null, true));
+        deliver();
+        assertEquals(
+            ca.entry("alex")
+                .key(),
+            ca.keys.get(a));
+        // an invalid initial choice is dropped quietly
+        Client cb = connect(b);
+        int before = cb.received;
+        cb.send(new Message.Select("builtin:no_such_model", null, true));
+        deliver();
+        assertEquals(before, cb.received);
+    }
+
+    @Test
     void operatorCommands() throws ModelServer.CommandError {
         Client ca = connect(a);
         Client cb = connect(b);

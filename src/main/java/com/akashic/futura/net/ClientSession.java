@@ -73,6 +73,8 @@ public final class ClientSession {
     private final Output out;
     private final Listener listener;
     private Phase phase = Phase.WAITING;
+    private UUID selfOnServer;
+    private UUID localPlayer;
 
     // Catalog being received
     private int pendingRevision;
@@ -99,6 +101,18 @@ public final class ClientSession {
     /** Says hello. On a server without the mod nothing answers, and the session stays waiting. */
     public void start() {
         out.send(new Message.ClientHello(Protocol.VERSION));
+    }
+
+    /**
+     * The local player's UUID in this client. States and emotes the server sends about the player's UUID on the
+     * server (the hello says which) are passed on with this one: they differ on offline-mode servers.
+     */
+    public void setLocalPlayer(UUID local) {
+        this.localPlayer = local;
+    }
+
+    private UUID map(UUID player) {
+        return localPlayer != null && player.equals(selfOnServer) ? localPlayer : player;
     }
 
     public boolean connected() {
@@ -154,12 +168,12 @@ public final class ClientSession {
                 break;
             case Protocol.S_STATE:
                 for (Message.PlayerState s : ((Message.PlayerStates) m).states) {
-                    listener.state(s.player, s.key, s.texture);
+                    listener.state(map(s.player), s.key, s.texture);
                 }
                 break;
             case Protocol.S_EMOTE: {
                 Message.Emote e = (Message.Emote) m;
-                listener.emote(e.player, e.name);
+                listener.emote(map(e.player), e.name);
                 break;
             }
             default:
@@ -173,6 +187,7 @@ public final class ClientSession {
             listener.incompatible(h.version);
             return;
         }
+        selfOnServer = h.self;
         if (phase == Phase.WAITING) {
             phase = Phase.CONNECTED;
             listener.connected();

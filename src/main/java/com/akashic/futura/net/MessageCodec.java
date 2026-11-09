@@ -24,7 +24,7 @@ import com.akashic.futura.model.ModelSource;
  * 1) and then the string; a hash is 32 raw bytes; a UUID is two longs.
  *
  * <pre>
- * S_HELLO        int version, int revision, int modelCount
+ * S_HELLO        int version, int revision, int modelCount, uuid self (the player's UUID on the server)
  * S_MODEL        int revision, hash id, str name, str tips, str license, u8 n, n × str author,
  *                u8 flags (1 restricted, 2 locked), u16 n, n × (str path, int size, hash)
  * S_CATALOG_END  int revision
@@ -34,7 +34,7 @@ import com.akashic.futura.model.ModelSource;
  * S_EMOTE        uuid, nstr name (null: stop)
  * C_HELLO        int version
  * C_REQUEST      u16 n, n × hash
- * C_SELECT       nstr key (null: default model), nstr texture
+ * C_SELECT       nstr key (null: default model), nstr texture, bool initial (the saved local choice on joining)
  * C_EMOTE        nstr name (null: stop)
  * </pre>
  *
@@ -74,6 +74,7 @@ public final class MessageCodec {
                 out.writeInt(h.version);
                 out.writeInt(h.revision);
                 out.writeInt(h.modelCount);
+                writeUuid(h.self, out);
                 break;
             }
             case Protocol.S_MODEL: {
@@ -131,6 +132,7 @@ public final class MessageCodec {
                 Message.Select s = (Message.Select) m;
                 writeNullable(s.key, Protocol.MAX_KEY_BYTES, out);
                 writeNullable(s.texture, Protocol.MAX_TEXTURE_BYTES, out);
+                out.writeBoolean(s.initial);
                 break;
             }
             case Protocol.C_EMOTE:
@@ -255,7 +257,7 @@ public final class MessageCodec {
                 int revision = in.readInt();
                 int count = in.readInt();
                 range(count, 0, Protocol.MAX_MODELS, "model count");
-                return new Message.ServerHello(version, revision, count);
+                return new Message.ServerHello(version, revision, count, readUuid(in));
             }
             case Protocol.S_MODEL: {
                 int revision = in.readInt();
@@ -306,7 +308,10 @@ public final class MessageCodec {
             }
             case Protocol.C_SELECT: {
                 String key = readKey(in);
-                return new Message.Select(key, readName(in, Protocol.MAX_TEXTURE_BYTES));
+                String texture = readName(in, Protocol.MAX_TEXTURE_BYTES);
+                int initial = in.readUnsignedByte();
+                range(initial, 0, 1, "initial flag");
+                return new Message.Select(key, texture, initial == 1);
             }
             case Protocol.C_EMOTE:
                 return new Message.EmoteRequest(readName(in, Protocol.MAX_ANIMATION_BYTES));

@@ -122,6 +122,7 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
             handler = now;
             if (now != null) {
                 session = new ClientSession(cache, this, this);
+                session.setLocalPlayer(Minecraft.getMinecraft().thePlayer.getUniqueID());
                 errors = 0;
                 session.start();
             }
@@ -180,7 +181,19 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
     public void connected() {
         Futura3D.LOG.info("The server runs {}: models and selections come from it", Futura3D.NAME);
         LocalEmotes.INSTANCE.addListener(emotes);
-        contract("connect", () -> ModelSelection.INSTANCE.setHandler(selection));
+        contract("connect", () -> {
+            // The saved local choice, for a server that has nothing saved for this player yet.
+            String key = ModelSelection.INSTANCE.localKey();
+            if (key != null && com.akashic.futura.net.Protocol.validKey(key)) {
+                String texture = ModelSelection.INSTANCE.localTexture();
+                send(
+                    new Message.Select(
+                        key,
+                        texture != null && com.akashic.futura.net.Protocol.printable(texture) ? texture : null,
+                        true));
+            }
+            ModelSelection.INSTANCE.setHandler(selection);
+        });
     }
 
     @Override

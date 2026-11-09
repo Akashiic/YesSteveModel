@@ -51,10 +51,12 @@ class MessageCodecTest {
 
     @Test
     void everyMessageRoundTrips() throws ProtocolException {
-        Message.ServerHello hello = (Message.ServerHello) roundTrip(new Message.ServerHello(Protocol.VERSION, 7, 3));
+        Message.ServerHello hello = (Message.ServerHello) roundTrip(
+            new Message.ServerHello(Protocol.VERSION, 7, 3, new UUID(1, 2)));
         assertEquals(Protocol.VERSION, hello.version);
         assertEquals(7, hello.revision);
         assertEquals(3, hello.modelCount);
+        assertEquals(new UUID(1, 2), hello.self);
 
         CatalogEntry e = entry(files());
         Message.ModelEntry me = (Message.ModelEntry) roundTrip(new Message.ModelEntry(7, e.withLocked(true)));
@@ -110,6 +112,8 @@ class MessageCodecTest {
         Message.Select s = (Message.Select) roundTrip(new Message.Select("builtin:default", "default"));
         assertEquals("builtin:default", s.key);
         assertEquals("default", s.texture);
+        assertFalse(s.initial);
+        assertTrue(((Message.Select) roundTrip(new Message.Select("builtin:default", null, true))).initial);
         assertNull(((Message.Select) roundTrip(new Message.Select(null, null))).key);
         assertEquals("wave", ((Message.EmoteRequest) roundTrip(new Message.EmoteRequest("wave"))).name);
         assertNull(((Message.EmoteRequest) roundTrip(new Message.EmoteRequest(null))).name);
@@ -120,7 +124,7 @@ class MessageCodecTest {
         // type byte, then the version: any later protocol can read this much
         byte[] b = MessageCodec.encode(new Message.ClientHello(Protocol.VERSION));
         assertArrayEquals(new byte[] { (byte) Protocol.C_HELLO, 0, 0, 0, (byte) Protocol.VERSION }, b);
-        byte[] s = MessageCodec.encode(new Message.ServerHello(Protocol.VERSION, 1, 0));
+        byte[] s = MessageCodec.encode(new Message.ServerHello(Protocol.VERSION, 1, 0, new UUID(0, 0)));
         assertEquals(Protocol.S_HELLO, s[0]);
         assertEquals(Protocol.VERSION, s[4]);
     }
