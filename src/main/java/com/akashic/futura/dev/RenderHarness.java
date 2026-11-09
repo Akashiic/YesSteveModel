@@ -9,17 +9,20 @@ import java.util.List;
 import java.util.Locale;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.EntityOtherPlayerMP;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ScreenShotHelper;
+import net.minecraft.world.EnumDifficulty;
 import net.minecraft.world.WorldSettings;
 import net.minecraft.world.WorldType;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
@@ -29,6 +32,7 @@ import org.lwjgl.opengl.GL11;
 
 import com.akashic.futura.Futura3D;
 import com.akashic.futura.client.PlayerModels;
+import com.mojang.authlib.GameProfile;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -88,6 +92,8 @@ public final class RenderHarness {
         // Models of the level the port targets (1554 cubes) and a stress case (4533 cubes).
         copySteps("wedding", "wine_fox/18_wedding");
         copySteps("sta", "wine_fox/08_sta");
+        itemSteps();
+        onlySteps();
     }
 
     // Animation states: keys held every tick by the harness, a sword swung every 10 ticks.
@@ -248,6 +254,7 @@ public final class RenderHarness {
             return;
         }
         applyKeys();
+        itemTick();
         if (++ticks >= SETTLE_TICKS) {
             if (names.get(index)
                 .contains("-copies-")) {
@@ -334,6 +341,9 @@ public final class RenderHarness {
             mc.displayHeight,
             mc.getFramebuffer());
         report("shot " + name);
+        if (fake != null) {
+            report("  RightHandLocator " + Arrays.toString(PlayerModels.INSTANCE.locator(fake, "RightHandLocator")));
+        }
         shotPending = false;
         ticks = 0;
         index++;
@@ -361,5 +371,324 @@ public final class RenderHarness {
         long[] sorted = Arrays.copyOf(nanos, nanos.length);
         Arrays.sort(sorted);
         return sorted[MathHelper.clamp_int((int) (p * (sorted.length - 1)), 0, sorted.length - 1)] / 1e6;
+    }
+
+    // ---- Phase 3a: items at the locators, sleeping, hurt tint ----
+
+    private static final int FAKE_ID = -4242;
+    private EntityOtherPlayerMP fake;
+    private float fakeYaw;
+    private int fakeHurt;
+    private boolean fakeDying;
+    private ItemStack fakeUse;
+    private boolean holdUse;
+    private int tapUse = -1;
+    private Runnable atTick5;
+    private boolean itemModelLoaded;
+
+    /**
+     * Items in the hand, from the front on the local player (walking too) and from the side on a second player that
+     * the local player looks at; the bow drawn, the rod cast, a block, a pumpkin on the head, the hurt tint and a
+     * player asleep in a bed. Each model step has a vanilla twin for comparison.
+     */
+    private void itemSteps() {
+        String[][] held = { { "sword", "diamond_sword" }, { "dirt", "dirt" } };
+        for (String[] h : held) {
+            for (boolean vanilla : new boolean[] { false, true }) {
+                String label = "item-" + (vanilla ? "vanilla-" : "") + h[0];
+                step(label + "-idle", () -> localItem(vanilla, h[1], false));
+                if (!vanilla) {
+                    step(label + "-walk", () -> {
+                        holdForward = true;
+                        applyKeys();
+                    });
+                }
+            }
+        }
+        for (boolean vanilla : new boolean[] { false, true }) {
+            String label = "item-" + (vanilla ? "vanilla-" : "");
+            step(label + "bow-draw", () -> localItem(vanilla, "bow", true));
+            step(label + "rod", () -> localItem(vanilla, "fishing_rod", false));
+            step(label + "rod-cast", () -> tapUse = 2);
+        }
+        step("item-rod-reel", () -> {
+            tapUse = 2;
+            holdUse = false;
+        });
+        for (boolean vanilla : new boolean[] { false, true }) {
+            String label = "item-side-" + (vanilla ? "vanilla-" : "");
+            step(label + "sword", () -> fakeItem(vanilla, new ItemStack(Items.diamond_sword), false, 90));
+            step(label + "bow", () -> fakeItem(vanilla, new ItemStack(Items.bow), true, 90));
+            step(label + "rod", () -> fakeItem(vanilla, new ItemStack(Items.fishing_rod), false, 90));
+            step(label + "dirt", () -> fakeItem(vanilla, new ItemStack(Blocks.dirt), false, 90));
+            step(label + "pumpkin", () -> {
+                fakeItem(vanilla, new ItemStack(Items.diamond_sword), false, 180);
+                fake.inventory.armorInventory[3] = new ItemStack(Blocks.pumpkin);
+            });
+        }
+        step("item-hurt", () -> {
+            fakeItem(false, new ItemStack(Items.diamond_sword), false, 180);
+            fakeHurt = 8;
+        });
+        step("item-vanilla-hurt", () -> {
+            fakeItem(true, new ItemStack(Items.diamond_sword), false, 180);
+            fakeHurt = 8;
+        });
+        for (boolean vanilla : new boolean[] { false, true }) {
+            String v = vanilla ? "vanilla-" : "";
+            step("item-" + v + "invisible", () -> {
+                fakeItem(vanilla, new ItemStack(Items.diamond_sword), false, 180);
+                fake.setInvisible(true);
+            });
+            step("item-" + v + "death", () -> {
+                fakeItem(vanilla, new ItemStack(Items.diamond_sword), false, 90);
+                fakeDying = true;
+            });
+        }
+        step("item-attributes", () -> {
+            fakeItem(false, new ItemStack(Items.diamond_sword), false, 180);
+            // ysm.bone_color, bone_transparency and bone_glow as an animation would write them: a blue head, every
+            // bone at alpha 80 (only translucent faces fade) and the legs at light level 0.
+            com.akashic.futura.anim.BoneAttributes a = PlayerModels.INSTANCE.animator(fake)
+                .attributes();
+            com.akashic.futura.geo.BakedGeometry g = PlayerModels.INSTANCE.model().main;
+            java.util.Arrays.fill(a.alpha, 80);
+            setIfPresent(a.color, g.indexOf("Head"), 0x6080FF);
+            setIfPresent(a.glow, g.indexOf("LeftLeg"), 0);
+            setIfPresent(a.glow, g.indexOf("RightLeg"), 0);
+        });
+        step("item-attributes-reset", () -> {
+            PlayerModels.INSTANCE.animator(fake)
+                .attributes()
+                .reset();
+            PlayerModels.INSTANCE.use("wine_fox/18_wedding");
+            fakeItem(false, new ItemStack(Items.diamond_sword), false, 180);
+        });
+        step("item-translucent-side", () -> fakeItem(false, new ItemStack(Items.diamond_sword), false, 90));
+        step("item-translucent-default", () -> {
+            PlayerModels.INSTANCE.use("default");
+            fakeItem(false, new ItemStack(Items.diamond_sword), false, 180);
+        });
+        for (boolean vanilla : new boolean[] { false, true }) {
+            step("item-" + (vanilla ? "vanilla-" : "") + "sleep", () -> sleepStep(vanilla));
+        }
+        step("item-end", () -> {
+            removeFake();
+            clearBed();
+            Minecraft mc = Minecraft.getMinecraft();
+            mc.gameSettings.hideGUI = false;
+            PlayerModels.INSTANCE.setEnabled(true);
+            keys(false, false, false, false);
+        });
+    }
+
+    /** The harness file can narrow the steps: {@code items [part...]} or {@code only part...}. */
+    private void onlySteps() {
+        File file = new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness");
+        String mode;
+        try {
+            mode = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            return;
+        }
+        String[] words = mode.trim()
+            .split("\\s+");
+        // "items [part...]": the phase 3a steps (those whose name contains a part); "only part...": any step whose
+        // name contains a part.
+        boolean items = words[0].equals("items");
+        if (!items && !words[0].equals("only")) {
+            return;
+        }
+        String prefix = items ? "item-" : "";
+        for (int i = names.size() - 1; i >= 0; i--) {
+            String name = names.get(i);
+            boolean keep = name.startsWith(prefix) && (words.length < 2 || name.equals("item-end"));
+            for (int w = 1; w < words.length && !keep; w++) {
+                keep = name.startsWith(prefix) && name.contains(words[w]);
+            }
+            if (!keep) {
+                names.remove(i);
+                steps.remove(i);
+            }
+        }
+    }
+
+    private void localItem(boolean vanilla, String item, boolean use) {
+        removeFake();
+        clearBed();
+        PlayerModels.INSTANCE.setEnabled(!vanilla);
+        if (!itemModelLoaded) {
+            itemModelLoaded = PlayerModels.INSTANCE.use("default");
+        }
+        Minecraft.getMinecraft().gameSettings.hideGUI = false;
+        keys(false, false, false, false);
+        holdUse = false;
+        EntityPlayerMP p = serverPlayer(Minecraft.getMinecraft());
+        if (p != null) {
+            p.inventory.setInventorySlotContents(
+                p.inventory.currentItem,
+                new ItemStack((net.minecraft.item.Item) net.minecraft.item.Item.itemRegistry.getObject(item)));
+        }
+        view(2, 0);
+        if (use) {
+            atTick5 = () -> holdUse = true;
+        }
+    }
+
+    private void fakeItem(boolean vanilla, ItemStack stack, boolean use, float yaw) {
+        Minecraft mc = Minecraft.getMinecraft();
+        PlayerModels.INSTANCE.setEnabled(!vanilla);
+        holdUse = false;
+        fakeHurt = 0;
+        fakeDying = false;
+        keys(false, false, false, false);
+        clearBed();
+        mc.gameSettings.hideGUI = true;
+        if (fake == null || fake.isPlayerSleeping() || fake.getHealth() <= 0) {
+            removeFake();
+            fake = new EntityOtherPlayerMP(mc.theWorld, new GameProfile(java.util.UUID.randomUUID(), "futura3d"));
+            fake.setPositionAndRotation(0.5, 4 + fake.yOffset, 3.5, yaw, 0);
+            mc.theWorld.addEntityToWorld(FAKE_ID, fake);
+        }
+        fakeYaw = yaw;
+        fake.setInvisible(false);
+        fake.inventory.armorInventory[3] = null;
+        fake.inventory.setInventorySlotContents(fake.inventory.currentItem, stack);
+        fakeUse = use ? stack : null;
+        if (use) {
+            fake.setItemInUse(stack, stack.getMaxItemUseDuration());
+        } else {
+            fake.clearItemInUse();
+        }
+        look(0, 0, 18);
+    }
+
+    private void sleepStep(boolean vanilla) {
+        Minecraft mc = Minecraft.getMinecraft();
+        removeFake();
+        PlayerModels.INSTANCE.setEnabled(!vanilla);
+        mc.gameSettings.hideGUI = true;
+        fakeHurt = 0;
+        MinecraftServer server = MinecraftServer.getServer();
+        if (server != null) {
+            net.minecraft.world.World w = server.worldServers[0];
+            w.difficultySetting = EnumDifficulty.PEACEFUL;
+            // Foot at z = 3, head at z = 4 (direction 0: the head toward +z).
+            w.setBlock(0, 4, 3, Blocks.bed, 0, 3);
+            w.setBlock(0, 4, 4, Blocks.bed, 8, 3);
+        }
+        lookFrom(2.8, 3.8, 0, 90, 35);
+        atTick5 = () -> {
+            fake = new EntityOtherPlayerMP(mc.theWorld, new GameProfile(java.util.UUID.randomUUID(), "futura3d"));
+            fake.setPositionAndRotation(0.5, 4 + fake.yOffset, 2.5, 0, 0);
+            mc.theWorld.addEntityToWorld(FAKE_ID, fake);
+            fake.sleepInBedAt(0, 4, 4);
+        };
+    }
+
+    private static void setIfPresent(int[] values, int index, int value) {
+        if (index >= 0) {
+            values[index] = value;
+        }
+    }
+
+    private static void clearBed() {
+        MinecraftServer server = MinecraftServer.getServer();
+        if (server != null) {
+            server.worldServers[0].setBlockToAir(0, 4, 3);
+            server.worldServers[0].setBlockToAir(0, 4, 4);
+        }
+    }
+
+    private void removeFake() {
+        if (fake != null) {
+            Minecraft.getMinecraft().theWorld.removeEntityFromWorld(FAKE_ID);
+            fake = null;
+        }
+    }
+
+    private void look(int thirdPerson, float yaw, float pitch) {
+        lookFrom(0.5, 0.5, thirdPerson, yaw, pitch);
+    }
+
+    private void lookFrom(double x, double z, int thirdPerson, float yaw, float pitch) {
+        Minecraft mc = Minecraft.getMinecraft();
+        mc.gameSettings.thirdPersonView = thirdPerson;
+        EntityPlayerMP p = serverPlayer(mc);
+        if (p != null) {
+            p.inventory.setInventorySlotContents(p.inventory.currentItem, null);
+            p.playerNetServerHandler.setPlayerLocation(x, 4, z, yaw, pitch);
+        }
+    }
+
+    /** Every tick: the use key, the second player's yaw, bow and hurt time. */
+    private void itemTick() {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (ticks == 5 && atTick5 != null) {
+            Runnable r = atTick5;
+            atTick5 = null;
+            r.run();
+        }
+        boolean tap = tapUse >= 0 && ticks == tapUse;
+        KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), holdUse || tap);
+        if (fake != null && !fake.isPlayerSleeping()) {
+            fake.rotationYaw = fake.prevRotationYaw = fakeYaw;
+            fake.rotationYawHead = fake.prevRotationYawHead = fakeYaw;
+            fake.renderYawOffset = fake.prevRenderYawOffset = fakeYaw;
+            fake.onGround = true;
+            if (fakeUse != null && fake.getItemInUseCount() < 2) {
+                fake.setItemInUse(fakeUse, fakeUse.getMaxItemUseDuration());
+            }
+            if (fakeDying && ticks >= 24) {
+                // Dying from tick 24, so that the shot (tick 40) falls inside the one-second death animation; held
+                // halfway through the 20 ticks of dying (at 20 the entity is removed).
+                fake.setHealth(0);
+                fake.deathTime = 10;
+            }
+            if (fakeHurt > 0) {
+                fake.hurtTime = fakeHurt;
+                fake.maxHurtTime = 10;
+            }
+        }
+        if (ticks > tapUse + 1) {
+            tapUse = -1;
+        }
+    }
+
+    /** Draws the locator frames of the second player as axes (x red, y green, z blue), through the locator API. */
+    @SubscribeEvent
+    public void onRenderWorldLastLocators(RenderWorldLastEvent event) {
+        if (fake == null || done || !PlayerModels.INSTANCE.active()) {
+            return;
+        }
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_CURRENT_BIT | GL11.GL_LINE_BIT);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glLineWidth(3);
+        for (String name : new String[] { "RightHandLocator", "Head" }) {
+            float[] m = PlayerModels.INSTANCE.locator(fake, name);
+            if (m == null) {
+                continue;
+            }
+            java.nio.FloatBuffer b = org.lwjgl.BufferUtils.createFloatBuffer(16);
+            b.put(m)
+                .flip();
+            GL11.glPushMatrix();
+            GL11.glMultMatrix(b);
+            GL11.glBegin(GL11.GL_LINES);
+            GL11.glColor3f(1, 0, 0);
+            GL11.glVertex3f(0, 0, 0);
+            GL11.glVertex3f(0.3f, 0, 0);
+            GL11.glColor3f(0, 1, 0);
+            GL11.glVertex3f(0, 0, 0);
+            GL11.glVertex3f(0, 0.3f, 0);
+            GL11.glColor3f(0, 0, 1);
+            GL11.glVertex3f(0, 0, 0);
+            GL11.glVertex3f(0, 0, 0.3f);
+            GL11.glEnd();
+            GL11.glPopMatrix();
+        }
+        GL11.glPopAttrib();
     }
 }

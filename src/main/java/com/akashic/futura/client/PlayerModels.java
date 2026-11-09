@@ -1,10 +1,15 @@
 package com.akashic.futura.client;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.function.Function;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.opengl.GL11;
@@ -16,6 +21,7 @@ import com.akashic.futura.anim.ModelAnimations;
 import com.akashic.futura.anim.PlayerAnimator;
 import com.akashic.futura.anim.PlayerSnapshot;
 import com.akashic.futura.client.render.GeometryRenderer;
+import com.akashic.futura.geo.FacePartition;
 import com.akashic.futura.model.ClasspathModelSource;
 import com.akashic.futura.model.LoadedModel;
 import com.akashic.futura.model.ModelLoader;
@@ -39,6 +45,8 @@ public final class PlayerModels {
     private boolean enabled = true;
     private boolean animationFailed;
 
+    private final ThirdPersonRenderer thirdPerson = new ThirdPersonRenderer();
+
     private PlayerModels() {}
 
     /** Reads and bakes the built-in default model (no GL work: the display lists are made on the first draw). */
@@ -60,10 +68,12 @@ public final class PlayerModels {
                 renderer.delete();
             }
             ModelAnimations compiled = ModelAnimations.compile(loaded);
+            byte[][] partitions = partitions(loaded);
             model = loaded;
             animations = compiled;
             animators.clear();
-            renderer = new GeometryRenderer(loaded.main);
+            thirdPerson.reset();
+            renderer = new GeometryRenderer(loaded.main, partitions);
             texture = new ResourceLocation(Futura3D.MODID, "builtin/" + builtin + "/" + loaded.defaultTexture());
             failed = false;
             animationFailed = false;
@@ -120,11 +130,21 @@ public final class PlayerModels {
                 Futura3D.LOG.error("Animation failed for model {}", model.name(), e);
             }
         }
-        GL11.glPushMatrix();
-        GL11.glTranslated(x, y, z);
-        GL11.glRotatef(180f - bodyYaw, 0, 1, 0);
-        drawAt(model.widthScale, model.heightScale, pose);
-        GL11.glPopMatrix();
+        thirdPerson.render(
+            player,
+            renderer,
+            texture,
+            model.widthScale,
+            model.heightScale,
+            model.manifest.properties.renderLayersFirst,
+            pose,
+            pose == null ? null : animator.attributes(),
+            x,
+            y,
+            z,
+            bodyYaw,
+            pt,
+            snapshot.renderingInInventory);
         return true;
     }
 
@@ -158,5 +178,64 @@ public final class PlayerModels {
             .bindTexture(texture);
         renderer.draw(pose);
         GL11.glPopAttrib();
+    }
+
+    // ---- Phase 3a: face partitions, locators and the off-hand seam ----
+
+    /** Upstream's face partitions from the default texture's alpha; all opaque if the texture cannot be read. */
+    private static byte[][] partitions(LoadedModel loaded) {
+        FacePartition.Alpha alpha = null;
+        try (InputStream in = loaded.source.open(loaded.defaultTexture())) {
+            if (in != null) {
+                alpha = FacePartition.Alpha.read(in);
+            }
+        } catch (IOException | RuntimeException e) {
+            Futura3D.LOG.warn("Could not read the texture of {} for its face partitions", loaded.name(), e);
+        }
+        return FacePartition.classify(loaded.main, alpha, loaded.manifest.properties.forceCulling);
+    }
+
+    /**
+     * The frame of a locator bone in a player's last third-person draw, for attaching things to the model (rods,
+     * fishing line, blades...): {@code RightHandLocator}, {@code LeftHandLocator}, {@code Head},
+     * {@code BackpackLocator}, or any bone name without trailing digits (upstream's locator groups: the first visible
+     * bone of the group is returned).
+     *
+     * <p>
+     * The matrix is column-major ({@code glMultMatrix} order) and maps the locator's local space (blocks, y up, the
+     * origin at the bone's pivot after the animated pose, the model's scale included) to camera-relative render space:
+     * world axes, origin at {@code RenderManager.renderPosX/Y/Z}, the space of a {@code RenderWorldLastEvent} or of an
+     * entity's {@code doRender(x, y, z)}. Upstream draws a held item at
+     * {@code locator · T(0, -1/16, -0.1) · Rx(-90°)} in 1.20's item space; {@code LocatorTransforms} has the 1.7.10
+     * equivalents. The frame is kept for invisible players too (the model draws nothing for them), but not for draws
+     * in a screen (the inventory) nor in first person, where the player is not drawn this way.
+     *
+     * @return a new {@code float[16]}, or {@code null} if the player was not drawn with a model in this frame or the
+     *         previous one, or the model has no visible bone of that group (a zero scale hides a group)
+     */
+    public float[] locator(EntityPlayer player, String name) {
+        return active() ? thirdPerson.locator(player, name) : null;
+    }
+
+    /** Every visible bone of a locator group, as {@link #locator}; {@code null} if the player was not drawn. */
+    public float[][] locators(EntityPlayer player, String name) {
+        return active() ? thirdPerson.locators(player, name) : null;
+    }
+
+    private static volatile Function<EntityPlayer, ItemStack> offhandSource;
+
+    /**
+     * Vanilla 1.7.10 has no off-hand; a mod that adds one (Backhand...) can give its item here, and the model draws it
+     * at {@code LeftHandLocator}.
+     *
+     * @param source the off-hand item of a player, or {@code null} for none; {@code null} removes the seam
+     */
+    public static void setOffhandSource(Function<EntityPlayer, ItemStack> source) {
+        offhandSource = source;
+    }
+
+    static ItemStack offhand(EntityPlayer player) {
+        Function<EntityPlayer, ItemStack> source = offhandSource;
+        return source == null ? null : source.apply(player);
     }
 }

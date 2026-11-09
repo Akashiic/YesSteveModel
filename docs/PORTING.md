@@ -97,7 +97,89 @@ O harness fotografa parado, andando, correndo, agachado e golpeando com espada (
   olhar), o agachar visto de lado, o piscar e a física de cabelo e saia em movimento (fotos paradas não mostram).
 * Ainda não: itens nos locators (a espada não aparece na mão: fase 3), `ysm.bone_color`/`bone_transparency`/
   `bone_glow` no renderizador (`BoneAttributes` é calculado mas não aplicado), primeira pessoa, sono e a rotação de
-  morte.
+  morte. Itens, atributos, sono e morte: feitos na fase 3a (abaixo).
+
+## Fase 3a (terceira pessoa): resultado
+
+Itens nos locators, atributos de osso, partições de face e os sinais visuais do jogo. Fotos do harness
+(`dev/RenderHarness.itemSteps`, `futura3d-harness` com `items` roda só estes passos), cada uma ao lado do vanilla:
+
+![Itens de frente: espada, arco puxado, vara lançada, bloco andando](img/fase3-itens-frente.png)
+![Itens de lado, com os eixos do RightHandLocator e do Head lidos pela API](img/fase3-itens-lado.png)
+![Dano, morte, sono, abóbora na cabeça, atributos de osso, invisível](img/fase3-sinais.png)
+
+**Locators** (`geo/PoseMatrices`, puro e testado): a matriz de cada osso é calculada uma vez por quadro na CPU
+(`T(pivô + posição) · Rz · Ry · Rx · S · T(-pivô)` encadeado) e serve às passadas de desenho e aos locators. O quadro de
+um locator é a matriz do osso vezes `T(pivô)`, como `GeoModelState.visitLocatorGroup` do upstream; um grupo é todo osso
+cujo nome sem os dígitos finais é o do grupo (`RightHandLocator`, `RightHandLocator2`...), e só ossos visíveis contam:
+escala 0 num osso ou ancestral esconde o grupo, e o item com ele (o modelo `wine_fox/18_wedding` troca a espada da mão
+pela própria, como o upstream decide em `attachments.md`).
+
+**Itens** (`client/render/HeldItemRenderer`): o upstream põe o item em `locator · T(0, -1/16, -0.1) · Rx(-90°)` e chama o
+`ItemInHandRenderer` da 1.20; o vanilla 1.20 usa `braço · Rx(-90°) · Ry(180°) · T(1/16, 0.125, -0.625)`. Igualando os
+dois, o quadro de mão da 1.7.10 (`braço · T(-1/16, 7/16, 1/16)` de `RenderPlayer.renderEquippedItems`) fica
+`locator · T(0, 1/8, 7/80) · Rz(180°)` (`geo/LocatorTransforms`, com teste), e dali seguem as transformações por item
+da 1.7.10: blocos 3D, `IItemRenderer` `EQUIPPED` com `BLOCK_3D`, arco, ferramentas `isFull3D` (com a de bloquear),
+itens planos, passadas múltiplas com cor, e a vara lançada desenhada como graveto, como o vanilla. Na pose de repouso
+do modelo `default` a espada sai igual à do vanilla (conta feita em Python sobre a geometria); no jogo a pose de
+segurar do modelo (`hold_mainhand:sword` gira o antebraço 30°) a deixa mais baixa e aberta, que é o que o modelo pede.
+Capacete que não é armadura (bloco, abóbora, cabeça) vai no locator `Head`, como `CustomPlayerHeadLayer`; armadura não
+é desenhada (o upstream também não). Os itens vêm depois do corpo, ou antes com `render_layers_first`.
+
+**API para o Kunftig**: `PlayerModels.INSTANCE.locator(EntityPlayer, String)` devolve um `float[16]` (coluna principal,
+ordem do `glMultMatrix`) do espaço local do locator (blocos, y para cima, origem no pivô animado, escala do modelo
+incluída) para o espaço de render relativo à câmera (eixos do mundo, origem em `RenderManager.renderPosX/Y/Z`, o
+espaço do `RenderWorldLastEvent`), ou `null` se o jogador não foi desenhado neste quadro nem no anterior ou o grupo
+está escondido; `locators(...)` devolve o grupo inteiro. O quadro é guardado também para jogadores invisíveis, mas não
+para o desenho no inventário. A mão esquerda: `PlayerModels.setOffhandSource(Function<EntityPlayer, ItemStack>)`, para
+um mod como o Backhand dar o item, que vai no `LeftHandLocator` (a 1.7.10 vanilla não tem segunda mão).
+
+**Partições** (`geo/FacePartition`, puro e testado, com os 24 modelos embutidos): a textura padrão é lida no
+carregamento (`ImageIO`) e cada face é classificada pelo alfa sob o retângulo de UV: tudo 255 opaca, algum texel abaixo
+de 255 (buracos inclusive) translúcida, tudo 0 fora. Corte de faces como o upstream decide: cubo completo (as seis faces
+do arquivo) de tamanho positivo e todo opaco corta as costas; cubo completo de tamanho negativo sempre corta (o
+enrolamento espelhado faz o corte esconder as faces da frente: a casca de contorno); o resto desenha os dois lados. Uma
+display list por osso por partição. Opacas primeiro; as translúcidas em duas passadas, porque display list não ordena:
+os texels totalmente opacos gravam profundidade, depois tudo é misturado com a máscara de profundidade desligada.
+`all_cutout` trata toda face não vazia como opaca.
+
+**Atributos de osso**: cor (vezes a do osso pai na chamada, não herdada), transparência só na partição translúcida
+(`bone-opacity.md`), brilho 0..15 como luz de bloco e de céu (`-1` mantém a luz). Na foto: cabeça azul, alfa 80 em
+todos os ossos (só o cabelo e um pedaço da perna somem), pernas com luz 0.
+
+**Sinais**: o vermelho de dano e morte é a passada do `RendererLivingEntity` (modelo de novo, sem textura, onde a
+profundidade foi gravada, cor `(brilho, 0, 0, 0,4)`). Invisível não desenha nada, nem itens, como o upstream (o vanilla
+1.7.10 desenha o item na mão de um invisível). Na cama: o deslocamento de `RenderPlayer.renderLivingAt` e o giro de
+`rotateCorpse` do vanilla, e a animação `sleep` deita o corpo (o upstream também mantém o giro da cama). Morte: sem a
+inclinação do vanilla; o upstream zera `deathTime` antes de `setupRotations` e deixa a animação `death` fazer.
+
+Desempenho no harness (llvmpipe, mesmas condições da fase 1, cópias na pose de repouso):
+
+| Modelo | Quadro sem cópias | +1 | +10 | +30 |
+|---|---|---|---|---|
+| `default` | 25,9 ms | 32,6 ms | 41,1 ms | 46,6 ms |
+| `wine_fox/18_wedding` | 25,1 ms | 35,8 ms | 56,5 ms | 98,7 ms |
+| `wine_fox/08_sta` | 38,1 ms | 45,9 ms | 119,5 ms | 234,8 ms |
+
+Entre 10 e 30% mais lento que a fase 2 nos modelos grandes com 10 e 30 cópias: faces que antes eram cortadas agora
+têm os dois lados (como o upstream decide), as translúcidas passam duas vezes e há mais display lists. Trocar
+`GL_NORMALIZE` por `GL_RESCALE_NORMAL` não mudou nada mensurável.
+
+**A checar**:
+
+* Em jogo, lado a lado com o YSM 1.20: a posição do item na mão (a conta das transformações é exata, mas as
+  transformações por item da 1.7.10 não são as da 1.20), o bloco na cabeça (o upstream usa o contexto `HEAD` da 1.20)
+  e a cabeça de jogador (`Items.skull`), que não foi fotografada.
+* A segunda mão com o Backhand: o encaixe existe, mas o item usa a mesma transformação da mão direita, sem espelhar.
+* A linha da vara de pescar sai da mão do bíped vanilla (`RenderFish`), não do locator: fica para o Kunftig, que vai
+  usar a API.
+* Ordem de translúcidos entre si sem ordenação (o upstream ordena de trás para frente por desenho); `force_translucent`
+  e o significado exato de `all_cutout` (o código nativo não está no repositório).
+* As normais das faces de trás que ficam visíveis (casca de contorno, faces de dois lados) não são invertidas como o
+  nativo faz: a luz delas pode sair mais escura.
+* A animação `death` é de tocar uma vez: passado 1 s ela volta à pose de repouso; no jogo a entidade some aos 20 ticks,
+  mas um mod que segure o jogador morto mais tempo veria isso.
+* Desempenho com Angelica e numa placa de vídeo de verdade.
 
 ## Fase 2 (animação): runtime
 
@@ -143,7 +225,7 @@ Diferente, de propósito:
   Valores não finitos de expressões viram 0 na pose.
 * Um tempo de quadro que volta para trás (entidade nova) só re-ancora o relógio.
 * Os efeitos `ysm.bone_color/transparency/glow` vão direto para `BoneAttributes` (sem lote de efeitos nem a
-  distinção CONTEXT/ACTION); o `GeometryRenderer` ainda não os aplica.
+  distinção CONTEXT/ACTION); o `GeometryRenderer` os aplica desde a fase 3a.
 
 Fora por enquanto: controladores Bedrock dos arquivos e os `pre_main`/`post_main`/`pre_hold`... que só existem quando
 declarados (encaixe em `PlayerControllers`/`AnimationController`, fase 5), as funções `player_ctrl_*` que sobrepõem um

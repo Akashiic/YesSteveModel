@@ -13,7 +13,7 @@ import com.akashic.futura.geo.BakedGeometry;
 /**
  * Per-bone render attributes written by {@code ysm.bone_color}, {@code ysm.bone_transparency} and
  * {@code ysm.bone_glow}. They persist across frames until written again (upstream), are not inherited by children,
- * and are for the renderer to apply (not used by {@code GeometryRenderer} yet).
+ * and are applied by {@code GeometryRenderer}.
  */
 public final class BoneAttributes {
 
@@ -22,8 +22,8 @@ public final class BoneAttributes {
     /** Alpha per bone, 0..255; default 255. */
     public final int[] alpha;
     /**
-     * Glow per bone: -1 or 15 draw at full brightness (upstream stores -1 as 255, "keep the light"), 0..14 a block
-     * light level; default 15 for {@code ysmGlow*} bones, else {@link #NO_GLOW}.
+     * Glow per bone: 0..15 sets block and sky light to that level (15: full brightness); -1 keeps the light
+     * (upstream stores it as 255); default 15 for {@code ysmGlow*} bones, else {@link #NO_GLOW} (also keeps the light).
      */
     public final int[] glow;
 
