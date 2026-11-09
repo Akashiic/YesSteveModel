@@ -9,7 +9,8 @@
   "client": [
     "RenderPlayerMixin",
     "RenderPlayerArmMixin",
-    "ItemRendererMixin"
+    "ItemRendererMixin",
+    "RenderFishMixin"
   ],
   "server": []
 }

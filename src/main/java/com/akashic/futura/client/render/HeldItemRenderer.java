@@ -25,6 +25,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
+import com.akashic.futura.client.PlayerModels;
 import com.akashic.futura.geo.LocatorTransforms;
 import com.akashic.futura.geo.Mat4;
 import com.mojang.authlib.GameProfile;
@@ -65,7 +66,7 @@ public final class HeldItemRenderer {
         }
         GL11.glPushMatrix();
         apply(locator, offset, true);
-        if (player.fishEntity != null) {
+        if (player.fishEntity != null && !PlayerModels.keepsItemWhileFishing(player)) {
             stack = new ItemStack(Items.stick);
         }
         Item item = stack.getItem();

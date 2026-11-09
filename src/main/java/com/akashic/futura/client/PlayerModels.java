@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
@@ -117,6 +118,7 @@ public final class PlayerModels {
      * @return false to let vanilla draw the player
      */
     public boolean render(AbstractClientPlayer player, double x, double y, double z, float pt) {
+        thirdPerson.forgetLastDraw();
         if (!active()) {
             return false;
         }
@@ -213,7 +215,9 @@ public final class PlayerModels {
      * entity's {@code doRender(x, y, z)}. Upstream draws a held item at
      * {@code locator · T(0, -1/16, -0.1) · Rx(-90°)} in 1.20's item space; {@code LocatorTransforms} has the 1.7.10
      * equivalents. The frame is kept for invisible players too (the model draws nothing for them), but not for draws
-     * in a screen (the inventory) nor in first person, where the player is not drawn this way.
+     * in a screen (the inventory) nor in first person, where the player is not drawn this way. Asked before the
+     * player is drawn in this frame (an entity drawn earlier, such as his fishing hook), the previous frame's pose is
+     * moved with the player to where he is in this frame, relative to this frame's camera.
      *
      * @return a new {@code float[16]}, or {@code null} if the player was not drawn with a model in this frame or the
      *         previous one, or the model has no visible bone of that group (a zero scale hides a group)
@@ -225,6 +229,56 @@ public final class PlayerModels {
     /** Every visible bone of a locator group, as {@link #locator}; {@code null} if the player was not drawn. */
     public float[][] locators(EntityPlayer player, String name) {
         return active() ? thirdPerson.locators(player, name) : null;
+    }
+
+    /** Whether the player was drawn in the world with a model in this frame or the one before. */
+    public boolean modelled(EntityPlayer player) {
+        return active() && thirdPerson.modelled(player);
+    }
+
+    /** Whether the player's model has a bone of a locator group, shown or hidden in the current pose. */
+    public boolean hasLocator(EntityPlayer player, String name) {
+        return active() && thirdPerson.hasGroup(player, name);
+    }
+
+    /** Whether the player draw that just ended (in the world or in a screen) drew this player's model. */
+    public boolean justDrew(EntityPlayer player) {
+        return active() && thirdPerson.justDrew(player);
+    }
+
+    /**
+     * The visible bones of a locator group in the player draw that just ended, relative to the matrix the player
+     * renderer was called with: for {@code RenderPlayerEvent.Post} handlers, in the world and in screens alike.
+     *
+     * @return {@code null} if that draw was not this player's model
+     */
+    public float[][] locatorsOfLastDraw(EntityPlayer player, String name) {
+        return active() ? thirdPerson.locatorsOfLastDraw(player, name) : null;
+    }
+
+    private static volatile Predicate<EntityPlayer> keepsItemWhileFishing;
+
+    /**
+     * 1.7.10 draws a stick in the hand while the fishing line is out, and so does the model; a mod that draws its own
+     * rod (Kunftig's 3D rods) can keep the held item for the players it says.
+     *
+     * @param keeps whether a player's held item stays in the hand with the line out; {@code null} removes the seam
+     */
+    public static void setKeepsItemWhileFishing(Predicate<EntityPlayer> keeps) {
+        keepsItemWhileFishing = keeps;
+    }
+
+    /** Whether the held item is drawn in place of vanilla's stick while the player's line is out. */
+    public static boolean keepsItemWhileFishing(EntityPlayer player) {
+        Predicate<EntityPlayer> keeps = keepsItemWhileFishing;
+        if (keeps == null) {
+            return false;
+        }
+        try {
+            return keeps.test(player);
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     private static volatile Function<EntityPlayer, ItemStack> offhandSource;

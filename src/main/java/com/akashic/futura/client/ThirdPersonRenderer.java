@@ -16,6 +16,7 @@ import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.renderer.OpenGlHelper;
+import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
@@ -53,6 +54,8 @@ public final class ThirdPersonRenderer {
         final PoseMatrices pose;
         /** Model space to camera-relative render space (scale included). */
         final float[] entity = new float[Mat4.FLOATS];
+        /** The render position of the feet in that draw (relative to the camera of that frame). */
+        double x, y, z;
         long frame = -10;
 
         Frame(GeometryRenderer renderer) {
@@ -67,6 +70,11 @@ public final class ThirdPersonRenderer {
     private GeometryRenderer framesFor;
     private Frame guiFrame;
     private long frameCount;
+    private float partialTicks;
+    /** The player of the last draw (world or screen) and its frame, for {@code RenderPlayerEvent.Post} handlers. */
+    private EntityPlayer lastPlayer;
+    private Frame lastFrame;
+    private long lastFrameCount = -10;
 
     ThirdPersonRenderer() {
         FMLCommonHandler.instance()
@@ -78,6 +86,7 @@ public final class ThirdPersonRenderer {
     public void onRenderTick(TickEvent.RenderTickEvent event) {
         if (event.phase == TickEvent.Phase.START) {
             frameCount++;
+            partialTicks = event.renderTickTime;
         }
     }
 
@@ -86,6 +95,13 @@ public final class ThirdPersonRenderer {
         frames.clear();
         guiFrame = null;
         framesFor = null;
+        forgetLastDraw();
+    }
+
+    /** A player is about to be drawn: until the model draws him, the last draw is not a model's. */
+    void forgetLastDraw() {
+        lastPlayer = null;
+        lastFrame = null;
     }
 
     private Frame frame(AbstractClientPlayer player, GeometryRenderer renderer, boolean gui) {
@@ -122,9 +138,15 @@ public final class ThirdPersonRenderer {
         Frame frame = frame(player, renderer, gui);
         frame.pose.compute(pose);
         placement(player, x, y, z, bodyYaw, widthScale, heightScale, frame.entity);
+        frame.x = x;
+        frame.y = y;
+        frame.z = z;
         if (!gui) {
             frame.frame = frameCount;
         }
+        lastPlayer = player;
+        lastFrame = frame;
+        lastFrameCount = frameCount;
         if (player.isInvisible()) {
             // Upstream draws neither the body nor its layers (only a glowing outline, which 1.7.10 lacks).
             return;
@@ -246,17 +268,74 @@ public final class ThirdPersonRenderer {
     }
 
     float[][] locators(EntityPlayer player, String name) {
-        Frame frame = frames.get(player);
-        if (frame == null || frameCount - frame.frame > 1) {
+        Frame frame = worldFrame(player);
+        if (frame == null) {
             return null;
         }
-        int[] bones = frame.pose.visibleGroup(name);
-        float[][] out = new float[bones.length][];
-        for (int i = 0; i < bones.length; i++) {
-            frame.pose.locator(bones[i], locator, 0);
-            out[i] = new float[Mat4.FLOATS];
-            Mat4.mul(frame.entity, 0, locator, 0, out[i], 0);
+        float[][] out = locators(frame, name);
+        if (frame.frame != frameCount) {
+            // Drawn in the frame before (this caller runs before the player is drawn): keep the frame on the player
+            // as he is in this frame, relative to this frame's camera.
+            double[] now = renderPosition(player, partialTicks);
+            float dx = (float) (now[0] - frame.x);
+            float dy = (float) (now[1] - frame.y);
+            float dz = (float) (now[2] - frame.z);
+            for (float[] m : out) {
+                m[12] += dx;
+                m[13] += dy;
+                m[14] += dz;
+            }
         }
         return out;
+    }
+
+    private static float[][] locators(Frame frame, String name) {
+        int[] bones = frame.pose.visibleGroup(name);
+        float[][] out = new float[bones.length][];
+        float[] local = new float[Mat4.FLOATS];
+        for (int i = 0; i < bones.length; i++) {
+            frame.pose.locator(bones[i], local, 0);
+            out[i] = new float[Mat4.FLOATS];
+            Mat4.mul(frame.entity, 0, local, 0, out[i], 0);
+        }
+        return out;
+    }
+
+    /** The player's world draw of this frame or the one before, or null. */
+    private Frame worldFrame(EntityPlayer player) {
+        Frame frame = frames.get(player);
+        return frame == null || frameCount - frame.frame > 1 ? null : frame;
+    }
+
+    /** Whether the player was drawn in the world with a model in this frame or the one before. */
+    boolean modelled(EntityPlayer player) {
+        return worldFrame(player) != null;
+    }
+
+    /** Whether the player's model has a bone of that locator group, visible or not (false if never drawn). */
+    boolean hasGroup(EntityPlayer player, String name) {
+        Frame frame = frames.get(player);
+        return frame != null && frame.pose.group(name).length > 0;
+    }
+
+    /** Whether the player draw that just ended (world or screen) was this player's model. */
+    boolean justDrew(EntityPlayer player) {
+        return player != null && lastPlayer == player && lastFrameCount == frameCount;
+    }
+
+    /**
+     * The visible bones of a locator group in the draw that just ended, relative to the matrix the player renderer
+     * was called with (camera-relative render space in the world, the screen's space in the inventory); null if that
+     * draw was not this player's model.
+     */
+    float[][] locatorsOfLastDraw(EntityPlayer player, String name) {
+        return justDrew(player) ? locators(lastFrame, name) : null;
+    }
+
+    /** {@code RendererLivingEntity.doRender}'s position of an entity: interpolated, relative to the camera. */
+    private static double[] renderPosition(EntityPlayer p, float pt) {
+        return new double[] { p.lastTickPosX + (p.posX - p.lastTickPosX) * pt - RenderManager.renderPosX,
+            p.lastTickPosY + (p.posY - p.lastTickPosY) * pt - RenderManager.renderPosY,
+            p.lastTickPosZ + (p.posZ - p.lastTickPosZ) * pt - RenderManager.renderPosZ };
     }
 }

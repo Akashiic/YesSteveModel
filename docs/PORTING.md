@@ -171,8 +171,7 @@ têm os dois lados (como o upstream decide), as translúcidas passam duas vezes 
   transformações por item da 1.7.10 não são as da 1.20), o bloco na cabeça (o upstream usa o contexto `HEAD` da 1.20)
   e a cabeça de jogador (`Items.skull`), que não foi fotografada.
 * A segunda mão com o Backhand: o encaixe existe, mas o item usa a mesma transformação da mão direita, sem espelhar.
-* A linha da vara de pescar sai da mão do bíped vanilla (`RenderFish`), não do locator: fica para o Kunftig, que vai
-  usar a API.
+* ~~A linha da vara de pescar sai da mão do bíped vanilla (`RenderFish`), não do locator~~: feito na fase 3c.
 * Ordem de translúcidos entre si sem ordenação (o upstream ordena de trás para frente por desenho); `force_translucent`
   e o significado exato de `all_cutout` (o código nativo não está no repositório).
 * As normais das faces de trás que ficam visíveis (casca de contorno, faces de dois lados) não são invertidas como o
@@ -310,6 +309,52 @@ Ainda não:
 
 Testes: 182 (31 do braço em primeira pessoa, incluindo todos os modelos embutidos; 6 da roleta; 2 do `v.roaming`
 compartilhado).
+
+## Fase 3c: API para outros mods, linha de pesca, varas e lâminas do Kunftig
+
+### API estável (`api/FuturaModels`)
+
+`com.akashic.futura.api.FuturaModels` é o ponto de entrada para outros mods, só com tipos do JDK e do Minecraft nas
+assinaturas, para ser chamado por reflexão (o Kunftig não depende do futura3d). Lado do cliente; no servidor dedicado
+responde `false`/`null`. `API_VERSION = 1`.
+
+| Método | O que dá |
+|---|---|
+| `isModelled(player)` | desenhado no mundo com modelo neste quadro ou no anterior |
+| `locator(player, nome)`, `locatorOrNull(player, nomes...)`, `locators(player, nome)` | quadro do locator em espaço de render relativo à câmera (o de `RenderWorldLastEvent`); pedido antes de o jogador ser desenhado neste quadro (uma entidade desenhada antes, como a boia), a pose do quadro anterior é levada junto com o jogador para onde ele está agora |
+| `hasLocator(player, nome)` | o modelo tem um osso do grupo, visível ou escondido (escala 0) |
+| `drewModel(player)`, `locatorInLastDraw(player, nome)` | para quem trata `RenderPlayerEvent.Post`: se o desenho que acabou foi o modelo, e o locator relativo à matriz desse evento (mundo ou inventário). `RenderPlayerEvent.Specials` não dispara para jogador com modelo |
+| `setKeepsItemWhileFishing(Predicate)` | um mod que desenha a própria vara (o Kunftig) mantém o item na mão com a linha fora, no lugar do graveto |
+
+### Linha de pesca
+
+`mixin/mixins/RenderFishMixin` + `client/FishingLine`: com o pescador desenhado com modelo (e fora da primeira pessoa
+dele mesmo), a linha vanilla sai da ponta do graveto que o modelo segura no `RightHandLocator`
+(`LocatorTransforms.castRodTip`: o fim do ícone do graveto pelas transformações da 1.7.10, 0,77 bloco à frente da mão
+e 0,17 acima, com teste). Só os `addVertex` da linha são redirecionados (a curva é a vanilla); o `startDrawing` fica
+livre, e é nele que o `RenderFishLineMixin` do Kunftig cancela o desenho para pôr a linha na ponta da vara 3D. Assim
+os dois compõem em qualquer ordem de aplicação dos mixins: com vara 3D e ponta capturada, a linha do Kunftig; senão, a
+linha vanilla saindo do modelo.
+
+O upstream **não** faz isso: `FishingHookRendererReplace` mantém os deslocamentos fixos do vanilla (só soma o
+agachar) e a linha não segue a mão do modelo. Aqui segue, porque na 1.7.10 esses deslocamentos ficam longe da mão.
+
+### Resultado (harness do Kunftig, modo `models`, com o jar de dev do futura3d em `run/client/mods`)
+
+![Vara vanilla lançada vista de lado: a linha sai do graveto na mão do modelo](img/fase3c-linha-vanilla.png)
+
+* Vara vanilla lançada: graveto na mão do modelo e a linha saindo da ponta dele, de frente e de lado, nos modelos
+  `default` e `wine_fox/13_matured`.
+* Vara 3D do Kunftig (pack do AkashicFishing): desenhada na mão do modelo pelo `IItemRenderer` `EQUIPPED`, continua
+  na mão com a linha fora (o `Predicate` acima), e a linha dourada sai da ponta capturada pelo Kunftig.
+* Lâmina do Kunftig (estilo SlashBlade) nos locators `BladeLocator`/`SheathLocator`/`LeftWaistLocator`: ver o Kunftig,
+  `docs/playermodel/ESTUDO-YSM.md`, seção 10.
+* `isModelled` falso em primeira pessoa do jogador local, verdadeiro em terceira e para outro jogador.
+
+**A checar**: em jogo de verdade (não no harness) a linha de outro jogador num servidor, com a boia desenhada antes
+dele (o caminho do quadro anterior); a linha com o jogador dormindo ou montado; a cor da linha (vanilla preta).
+
+Testes: 226.
 
 ## Fases
 
