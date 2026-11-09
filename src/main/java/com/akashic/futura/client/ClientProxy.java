@@ -22,6 +22,7 @@ public class ClientProxy extends CommonProxy {
     public void init(FMLInitializationEvent event) {
         super.init(event);
         PlayerModels.INSTANCE.load();
+        EmoteKeys.register();
         if (new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness").isFile()) {
             try {
                 // Development only: the dev package is not in release jars.

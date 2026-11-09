@@ -4,7 +4,9 @@
  * tickAnimationNow, advanceComponentTime), src/main/java/com/elfmcys/ysm/client/entity/CustomHumanoidEntity.java
  * (codeAnimation: the head look), src/main/java/com/elfmcys/ysm/client/entity/CustomPlayerEntity.java (extra
  * animations), src/main/java/com/elfmcys/ysm/geckolib3/model/EntityStateTracker.java and
- * src/main/java/com/elfmcys/ysm/expression/host/builtin/PositionComponent.java, Apache License 2.0.
+ * src/main/java/com/elfmcys/ysm/expression/host/builtin/PositionComponent.java and
+ * src/main/java/com/elfmcys/ysm/client/entity/CustomFirstPersonArmEntity.java (the first-person arms: own controllers,
+ * roaming variables projected from the body), Apache License 2.0.
  * Changes: one object per player and model, driven by PlayerInputs; no async ticker, rate limiter, GUI previews,
  * first-person head hiding or network sync.
  */
@@ -25,6 +27,9 @@ import com.akashic.futura.molang.MolangVariables;
  * animator.update(inputs, player.ticksExisted + partialTicks); // every frame
  * geometryRenderer.draw(animator.pose());
  * </pre>
+ *
+ * The first-person arms are a second animator of the same player: {@link #firstPerson} with the model's
+ * {@link ModelAnimations#compileFirstPerson arm animations}.
  */
 public final class PlayerAnimator {
 
@@ -78,12 +83,17 @@ public final class PlayerAnimator {
     private float positionSampleTime;
 
     public PlayerAnimator(ModelAnimations model) {
+        this(model, new MolangVariables());
+    }
+
+    private PlayerAnimator(ModelAnimations model, MolangVariables variables) {
         this.model = model;
         this.processor = new AnimationProcessor(model.initialRotations);
         this.pose = new BonePose(model.geometry.bones.length);
         this.attributes = new BoneAttributes(model.geometry);
-        this.context = new PlayerMolangContext(this);
-        this.controllers = PlayerControllers.build(this, model, processor.committed);
+        this.context = new PlayerMolangContext(this, variables);
+        this.controllers = model.firstPerson ? FirstPersonControllers.build(this, model, processor.committed)
+            : PlayerControllers.build(this, model, processor.committed);
         AnimationController found = null;
         for (AnimationController controller : controllers) {
             if (PlayerControllers.CAP.equals(controller.name())) {
@@ -91,6 +101,20 @@ public final class PlayerAnimator {
             }
         }
         this.cap = found;
+    }
+
+    /**
+     * The first-person arms of a player (upstream {@code CustomFirstPersonArmEntity}): {@code fp.arm.*} controllers on
+     * the {@code arm} geometry. Its {@code v.roaming.*} variables are the body's; its other variables are its own.
+     *
+     * @param arms the model's {@link ModelAnimations#compileFirstPerson first-person animations}
+     * @param body the same player's body animator
+     */
+    public static PlayerAnimator firstPerson(ModelAnimations arms, PlayerAnimator body) {
+        if (!arms.firstPerson) {
+            throw new IllegalArgumentException("not first-person animations");
+        }
+        return new PlayerAnimator(arms, new MolangVariables(body.variables()));
     }
 
     /**

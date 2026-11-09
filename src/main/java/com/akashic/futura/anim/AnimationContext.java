@@ -10,12 +10,21 @@ import com.akashic.futura.molang.MolangVariables;
  */
 public abstract class AnimationContext implements MolangContext {
 
-    private final MolangVariables variables = new MolangVariables();
+    private final MolangVariables variables;
 
     /** Seconds into the clip being evaluated (upstream {@code AnimationExecutionState.animTime}). */
     float animTime;
     /** The controller being processed or sampled, or null. */
     AnimationController controller;
+
+    protected AnimationContext() {
+        this(new MolangVariables());
+    }
+
+    /** @param variables the entity's {@code v.*} store (e.g. one that shares roaming variables with another) */
+    protected AnimationContext(MolangVariables variables) {
+        this.variables = variables;
+    }
 
     @Override
     public MolangVariables variables() {

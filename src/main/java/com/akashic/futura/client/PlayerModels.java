@@ -94,6 +94,11 @@ public final class PlayerModels {
         return model;
     }
 
+    /** The texture of the current model (shared by the body and the first-person arms). */
+    public ResourceLocation texture() {
+        return texture;
+    }
+
     /**
      * Draws a player's model where vanilla would draw the biped.
      *

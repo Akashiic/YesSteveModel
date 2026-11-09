@@ -7,7 +7,9 @@
   "compatibilityLevel": "JAVA_8",
   "mixins": [],
   "client": [
-    "RenderPlayerMixin"
+    "RenderPlayerMixin",
+    "RenderPlayerArmMixin",
+    "ItemRendererMixin"
   ],
   "server": []
 }

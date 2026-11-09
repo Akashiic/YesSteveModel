@@ -148,7 +148,86 @@ Diferente, de propósito:
 Fora por enquanto: controladores Bedrock dos arquivos e os `pre_main`/`post_main`/`pre_hold`... que só existem quando
 declarados (encaixe em `PlayerControllers`/`AnimationController`, fase 5), as funções `player_ctrl_*` que sobrepõem um
 controlador codificado, sons de quadro-chave e `ysm.play_sound`, partículas, `ysm.sync`/`defer`, limitador de FPS da
-animação, primeira pessoa (`fp_arm`), compatibilidades de mods (ParCool, TaCZ, SlashBlade, Carry On...). Testes: 72.
+animação, primeira pessoa (`fp_arm`, feita na fase 3b), compatibilidades de mods (ParCool, TaCZ, SlashBlade, Carry
+On...). Testes: 72.
+
+## Fase 3b: primeira pessoa e animações extras (emotes)
+
+### Braços em primeira pessoa
+
+| Upstream | Aqui |
+|---|---|
+| `client/controller/collections/FPArmControllerCollection`, `client/animation/predicate/FPArmArmorPredicate` | `anim/FirstPersonControllers` |
+| `client/entity/CustomFirstPersonArmEntity` (animador próprio, `v.roaming` projetado do corpo) | `PlayerAnimator.firstPerson`, `MolangVariables(MolangVariables)` |
+| `client/entity/FirstPersonModelState` (raízes `LeftArm`/`RightArm`/`Background`, subárvore sem os ancestrais) | `ModelAnimations.compileFirstPerson`, `GeometryRenderer.drawSubtree` |
+| `client/renderer/CustomFirstPersonArmRenderer`, `client/event/ReplacePlayerHandRenderEvent`, `RenderFirstPlayerBackground` | `client/FirstPersonArms`, `mixin/mixins/RenderPlayerArmMixin`, `ItemRendererMixin` |
+
+O braço em primeira pessoa é a geometria `arm` do modelo com um segundo `PlayerAnimator` do mesmo jogador, só com
+os controladores do upstream para os braços: `fp.arm.parallel_N` (os `parallelN` do conjunto `fp_arm`, somando
+rotação, com o `fp_arm` do modelo padrão por trás) e `fp.arm.armor_<slot>`. Não há main, hold, use nem swing nos
+braços: o conjunto `arm` do modelo, apesar do nome, tem as animações de mão da terceira pessoa (ossos `UpBody`,
+`Head`...), e o upstream não o usa na primeira pessoa. O braço se move com as transformações da própria 1.7.10
+(balanço da câmera, `equippedProgress`, golpe). As variáveis `v.roaming.*` do braço são as do corpo; as outras são
+dele.
+
+No jogo, `RenderPlayer.renderFirstPersonArm` (que a 1.7.10 chama com a mão vazia e, duas vezes, com um mapa) é
+trocado pela subárvore `RightArm`, na mesma matriz e com o mesmo deslocamento do upstream (`translate(-0,25, 1,8, 0)`,
+`scale(-1, -1, 1)`). A 1.7.10 só desenha o braço direito, então `LeftArm` não aparece (no mapa os dois braços são o
+direito, como na vanilla). Itens na mão ficam onde a vanilla os põe, como no upstream (que também só troca o braço sem
+item). O osso `Background`, quando existe, é desenhado na pose de repouso depois do balanço do braço, com o balanço da
+câmera desfeito e 1,5 bloco abaixo, como `RenderFirstPlayerBackground`; nenhum modelo embutido tem esse osso.
+
+![Primeira pessoa, parado](img/fase3b-default-fp-idle.png)
+![Primeira pessoa, golpe com a mão vazia](img/fase3b-default-fp-swing.png)
+
+Harness (`firstPersonSteps`): parado, vanilla, andando, golpe com a mão vazia, golpe vanilla, espada (a vanilla
+desenha só o item), `wine_fox/19_nine_tailed` (o `parallel0` dele anima ossos do braço). O braço do modelo fica no
+lugar do vanilla, um pouco mais fino (é a geometria do modelo) e acompanha o golpe e o balanço de andar.
+
+* **A checar** em jogo: o `Background` (sem modelo embutido para testar; o desfazer do balanço usa os campos da 1.7.10
+  e não inclui o `cameraPitch`), o braço no mapa, a luz do braço sob o sol e no escuro, Angelica.
+* A câmera não se move: no upstream, `ViewLocator` e `AllHead` só servem à compatibilidade com o mod First Person
+  Model (corpo visível em primeira pessoa e altura dos olhos). Na 1.7.10 a câmera fica na altura vanilla.
+* Fase 5: o `fp.arm.misc` e os `fp.arm.parallel_*` declarados em arquivos de controladores do braço (o upstream só os
+  cria quando o modelo os declara; entram primeiro na lista de `FirstPersonControllers`).
+
+### Animações extras (emotes)
+
+| Upstream | Aqui |
+|---|---|
+| `client/gui/AnimationRouletteScreen` (estado: caminho, páginas, cliques) | `emote/RouletteMenu` (sem Minecraft, testado) |
+| `client/gui/AnimationRouletteScreen` (desenho), `button/FlatColorButton` | `client/gui/AnimationRouletteScreen` |
+| `client/input/AnimationRouletteKey`, `ExtraAnimationKey`, `client/event/PlayerMoveEvent` | `client/EmoteKeys` |
+| `ClientProtocolGateway.playSelfAnimation`/`stopSelfAnimation` | `client/LocalEmotes`, `emote/EmoteListener` |
+
+Teclas (categoria "3D Futura Engine"): roleta em `Z` (como no upstream e no YSM antigo), animações extras 0 a 7 sem
+tecla, trava da roleta sem tecla (no upstream é Alt+L; a 1.7.10 não tem modificadores). A roleta mostra as entradas de
+`properties.extra_animation` (chave = animação, valor = rótulo; valor em branco mostra o índice), oito por página,
+as subpáginas `#id` de `extra_animation_classify` em vermelho, `#return` volta um nível (fecha na raiz), no máximo
+6 níveis no caminho, e a página aberta é lembrada por modelo. As teclas extras 0-7 endereçam as entradas da raiz
+(`#return` para o emote, `#id` abre a roleta na subpágina) e não tocam nada com o jogador andando. Andar, pular ou
+agachar para o emote, a não ser com a trava ligada (botão no centro da roleta ou a tecla).
+
+![Emote extra0](img/fase3b-default-emote.png)
+![Roleta](img/fase3b-default-roulette.png)
+
+Seam para a rede (fase 4): os emotes por enquanto são só locais. `LocalEmotes.play`/`stop` tocam no animador do
+jogador local e avisam os `EmoteListener` registrados com `LocalEmotes.addListener`; a camada de rede registra um que
+manda o pedido ao servidor, e cada cliente que recebe o repasse chama
+`PlayerModels.INSTANCE.animator(player).playExtra(name)`/`stopExtra()` para aquele jogador.
+
+Ainda não:
+
+* `extra_animation_buttons` com `config_forms`: o anel interno (engrenagem) abre um painel que só lista os formulários;
+  editar (`checkbox`/`range`/`radio` em `v.roaming`) e sincronizar fica para depois, com a rede.
+* Os rótulos e descrições traduzidos dos arquivos `lang` do modelo (`properties.extra_animation.<chave>`) e a dica com
+  a descrição: aparece o texto do `ysm.json`.
+* Mensagem no chat ao tocar (opção `PRINT_ANIMATION_ROULETTE_MSG`).
+* **A checar** em jogo: a roleta com outras escalas de interface, roda do mouse, modelos com várias páginas e
+  subpáginas (`wine_fox/08_sta`).
+
+Testes: 182 (31 do braço em primeira pessoa, incluindo todos os modelos embutidos; 6 da roleta; 2 do `v.roaming`
+compartilhado).
 
 ## Fases
 

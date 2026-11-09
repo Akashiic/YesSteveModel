@@ -10,6 +10,7 @@ import java.util.Locale;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiMainMenu;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
@@ -25,10 +26,14 @@ import net.minecraft.world.WorldType;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 
+import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import com.akashic.futura.Futura3D;
+import com.akashic.futura.client.LocalEmotes;
 import com.akashic.futura.client.PlayerModels;
+import com.akashic.futura.client.gui.AnimationRouletteScreen;
+import com.akashic.futura.emote.RouletteMenu;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -83,6 +88,7 @@ public final class RenderHarness {
             view(2, 0);
         });
         animSteps("default", "default");
+        firstPersonSteps();
         animSteps("wedding", "wine_fox/18_wedding");
         copySteps("default", "default");
         // Models of the level the port targets (1554 cubes) and a stress case (4533 cubes).
@@ -127,6 +133,86 @@ public final class RenderHarness {
         step(label + "-rest", () -> keys(false, false, false, false));
     }
 
+    // First person (phase 3b): arms, then an emote and the roulette.
+    private boolean keepScreen;
+
+    private void firstPersonSteps() {
+        step("fp-idle", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            copies = 0;
+            keys(false, false, false, false);
+            view(0, 0);
+        });
+        step("fp-vanilla", () -> {
+            PlayerModels.INSTANCE.setEnabled(false);
+            view(0, 0);
+        });
+        step("fp-walk", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            keys(true, false, false, false);
+            view(0, 0);
+        });
+        step("fp-swing", () -> {
+            keys(false, false, false, false);
+            // swing with the empty hand: the model's arm follows vanilla's swing
+            keys(false, false, false, true);
+            view(0, 0);
+        });
+        step("fp-vanilla-swing", () -> {
+            PlayerModels.INSTANCE.setEnabled(false);
+            view(0, 0);
+        });
+        step("fp-sword", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            keys(false, false, false, true);
+            EntityPlayerMP p = serverPlayer(Minecraft.getMinecraft());
+            if (p != null) {
+                p.inventory.setInventorySlotContents(p.inventory.currentItem, new ItemStack(Items.diamond_sword));
+            }
+            view(0, 0);
+        });
+        step("emote", () -> {
+            keys(false, false, false, false);
+            view(2, 0);
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            String first = menu == null || menu.isEmpty() ? "extra0"
+                : menu.rootEntries()
+                    .get(0).key;
+            report("emote " + first + " playing: " + LocalEmotes.INSTANCE.play(first));
+        });
+        step("roulette", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            keepScreen = true;
+            mc.displayGuiScreen(new AnimationRouletteScreen(LocalEmotes.INSTANCE.menu()));
+            // hover the second slice (down-right of the centre), 75 GUI pixels out
+            ScaledResolution res = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+            int scale = res.getScaleFactor();
+            double angle = Math.toRadians(67.5);
+            int gx = res.getScaledWidth() / 2 - 70 + (int) (75 * Math.cos(angle));
+            int gy = res.getScaledHeight() / 2 - 8 + (int) (75 * Math.sin(angle));
+            Mouse.setCursorPosition(gx * scale, mc.displayHeight - gy * scale - 1);
+        });
+        // a model whose fp_arm animates bones of its arms (parallel0)
+        step("fp-nine-tailed", () -> {
+            keepScreen = false;
+            Minecraft.getMinecraft()
+                .displayGuiScreen(null);
+            LocalEmotes.INSTANCE.stop();
+            PlayerModels.INSTANCE.use("wine_fox/19_nine_tailed");
+            keys(false, false, false, false);
+            view(0, 0);
+        });
+        step("fp-rest", () -> {
+            keepScreen = false;
+            Minecraft.getMinecraft()
+                .displayGuiScreen(null);
+            LocalEmotes.INSTANCE.stop();
+            keys(false, false, false, false);
+            view(2, 0);
+        });
+    }
+
     private void keys(boolean forward, boolean sneak, boolean sprint, boolean sword) {
         holdForward = forward;
         holdSneak = sneak;
@@ -147,7 +233,8 @@ public final class RenderHarness {
         KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), holdSneak);
         if (mc.thePlayer != null) {
             mc.thePlayer.setSprinting(holdSprint && holdForward);
-            if (swingSword && mc.thePlayer.ticksExisted % 10 == 0) {
+            // every 10 ticks, timed so that each shot catches a swing halfway
+            if (swingSword && (ticks + 3) % 10 == 0) {
                 mc.thePlayer.swingItem();
             }
         }
@@ -225,7 +312,7 @@ public final class RenderHarness {
             return;
         }
         mc.gameSettings.pauseOnLostFocus = false;
-        if (mc.currentScreen != null) {
+        if (mc.currentScreen != null && !keepScreen) {
             mc.displayGuiScreen(null);
         }
         if (index < 0) {

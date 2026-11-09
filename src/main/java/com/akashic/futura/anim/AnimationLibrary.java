@@ -19,8 +19,9 @@ import com.akashic.futura.format.pojo.animation.AnimationFile;
 import com.akashic.futura.model.LoadedModel;
 
 /**
- * The third-person animations of a model by name, with the default model's animations behind them: a name the model
- * lacks resolves to the default animation of the same name.
+ * The animations of a model by name, with the default model's animations behind them: a name the model lacks resolves
+ * to the default animation of the same name. A model has two: the third-person body ({@link #of}, every set but
+ * {@code fp_arm}) and the first-person arms ({@link #ofFirstPerson}, only {@code fp_arm}).
  */
 public final class AnimationLibrary {
 
@@ -72,6 +73,21 @@ public final class AnimationLibrary {
      */
     public static AnimationLibrary of(LoadedModel model, AnimationLibrary fallback, ClipCompiler compiler) {
         return new AnimationLibrary(compile(model.animations, compiler), fallback);
+    }
+
+    /**
+     * Compiles the first-person set ({@code fp_arm}) of a model; its fallback is the default model's {@code fp_arm}
+     * (upstream's {@code player/first-person} default domain).
+     */
+    public static AnimationLibrary ofFirstPerson(LoadedModel model, AnimationLibrary fallback, ClipCompiler compiler) {
+        Map<String, AnimationClip> clips = new LinkedHashMap<>();
+        AnimationFile set = model.animations.get(FIRST_PERSON_SET);
+        if (set != null) {
+            for (Animation animation : set.animations) {
+                clips.put(animation.animationName, compiler.compile(animation));
+            }
+        }
+        return new AnimationLibrary(clips, fallback);
     }
 
     static Map<String, AnimationClip> compile(Map<String, AnimationFile> sets, ClipCompiler compiler) {

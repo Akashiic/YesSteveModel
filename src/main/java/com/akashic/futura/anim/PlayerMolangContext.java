@@ -12,6 +12,7 @@ package com.akashic.futura.anim;
 import java.util.Random;
 
 import com.akashic.futura.molang.MolangValue;
+import com.akashic.futura.molang.MolangVariables;
 
 /**
  * Answers the {@code query.*}, {@code ysm.*}, {@code ctrl.*} (and {@code math.random*}) names for one player. Unknown
@@ -22,7 +23,8 @@ public final class PlayerMolangContext extends AnimationContext {
     private final PlayerAnimator a;
     private final Random random = new Random();
 
-    PlayerMolangContext(PlayerAnimator animator) {
+    PlayerMolangContext(PlayerAnimator animator, MolangVariables variables) {
+        super(variables);
         this.a = animator;
     }
 

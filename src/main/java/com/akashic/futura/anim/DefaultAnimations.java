@@ -16,6 +16,7 @@ public final class DefaultAnimations {
     public static final String BASE = "/assets/futura3d/builtin/default/";
 
     private static AnimationLibrary library;
+    private static AnimationLibrary firstPerson;
     private static boolean attempted;
     private static IOException failure;
 
@@ -27,12 +28,20 @@ public final class DefaultAnimations {
             attempted = true;
             try {
                 LoadedModel model = ModelLoader.load(new ClasspathModelSource(BASE));
-                library = AnimationLibrary.of(model, null, new ClipCompiler());
+                ClipCompiler compiler = new ClipCompiler();
+                library = AnimationLibrary.of(model, null, compiler);
+                firstPerson = AnimationLibrary.ofFirstPerson(model, null, compiler);
             } catch (IOException e) {
                 failure = e;
             }
         }
         return library;
+    }
+
+    /** @return the default model's first-person ({@code fp_arm}) library, or null if it could not be read */
+    public static synchronized AnimationLibrary firstPersonLibrary() {
+        library();
+        return firstPerson;
     }
 
     /** Why {@link #library()} returned null, if it did. */

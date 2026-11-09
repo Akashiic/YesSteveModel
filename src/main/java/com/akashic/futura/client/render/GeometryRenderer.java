@@ -65,6 +65,19 @@ public final class GeometryRenderer {
         }
     }
 
+    /**
+     * Draws one bone and its children at the current matrix, ignoring the bone's ancestors (their transforms and
+     * hiding), as upstream extracts the first-person part subtrees.
+     *
+     * @param pose per-bone animation of the whole geometry, or {@code null} for the rest pose
+     */
+    public void drawSubtree(int bone, BonePose pose) {
+        if (listBase < 0) {
+            compile();
+        }
+        drawBone(bone, pose);
+    }
+
     private void drawBone(int index, BonePose pose) {
         BakedGeometry.Bone bone = geometry.bones[index];
         if (pose != null && pose.hidden(index)) {
