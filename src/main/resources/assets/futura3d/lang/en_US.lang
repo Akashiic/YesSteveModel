@@ -24,6 +24,7 @@ gui.futura3d.picker.own_skin=Use my own skin (Steve/Alex)
 gui.futura3d.picker.own_skin_in_use=Wearing my own skin
 gui.futura3d.picker.in_use=In use
 gui.futura3d.picker.locked=Locked
+gui.futura3d.picker.no_server=This server does not run 3D Futura Engine: everyone keeps the default look here. Your choice is saved for the servers that do.
 gui.futura3d.picker.locked_tip=You need the server's permission to use this model
 gui.futura3d.picker.failed=Could not load
 gui.futura3d.picker.loading=Loading...

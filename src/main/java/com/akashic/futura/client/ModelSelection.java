@@ -90,10 +90,20 @@ public final class ModelSelection {
             return null;
         }
         Choice choice = selections.get(player);
-        if (choice == null && handler == null && isLocalPlayer(player)) {
+        if (choice == null && handler == null && isLocalPlayer(player) && !onRemoteServer()) {
             choice = local();
         }
         return choice;
+    }
+
+    /**
+     * In a multiplayer world. Without a handler there, the server does not run the mod (a lobby): everyone, the local
+     * player too, has the default look (his own skin on Steve/Alex), and the saved local choice waits for a server
+     * with the mod. Only the main menu and singleplayer before its handshake use the local choice directly.
+     */
+    public static boolean onRemoteServer() {
+        Minecraft mc = Minecraft.getMinecraft();
+        return mc.theWorld != null && !mc.isSingleplayer();
     }
 
     /** Forgets every player's selection (on disconnect), except the local player's local choice. */
@@ -118,6 +128,11 @@ public final class ModelSelection {
         }
         local = key == null && texture == null ? null : new Choice(key, texture);
         localLoaded = true;
+        Minecraft mc = Minecraft.getMinecraft();
+        if (onRemoteServer() && mc.thePlayer != null) {
+            mc.thePlayer
+                .addChatMessage(new net.minecraft.util.ChatComponentTranslation("gui.futura3d.picker.no_server"));
+        }
         UUID me = localPlayer.get();
         if (me != null) {
             // The local choice is what the local player is drawn with now, whatever was selected for him before.

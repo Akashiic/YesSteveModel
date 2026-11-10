@@ -543,6 +543,62 @@ class ModelServerTest {
     }
 
     @Test
+    void theChoiceIsRememberedAcrossRestartsOwnSkinIncluded() {
+        permissionMode = true;
+        ModelServer.Settings settings = new ModelServer.Settings();
+        server = newServer(settings);
+        server.loadNow();
+        grantNode(a, "futura3d.playermodel.alex");
+        Client ca = connect(a);
+        run(200);
+        String alex = server.snapshot()
+            .byName("alex")
+            .key();
+        // the allowed model is chosen and remembered
+        ca.send(new Message.Select(alex, null));
+        deliver();
+        assertEquals(alex, ca.keys.get(a));
+        server.leave(a);
+        clients.remove(a);
+
+        ModelServer restarted = newServer(new ModelServer.Settings());
+        restarted.loadNow();
+        server = restarted;
+        ca = connect(a);
+        run(200);
+        // the client's own saved choice (another model) does not override what the server remembers
+        ca.send(new Message.Select("builtin:misc/2_steve", null, true));
+        deliver();
+        assertEquals(alex, ca.keys.get(a), "the server remembers the model");
+
+        // now his own skin (Steve/Alex): remembered too, also against the client's saved local choice
+        ca.send(new Message.Select(null, null));
+        deliver();
+        assertNull(ca.keys.get(a));
+        server.leave(a);
+        clients.remove(a);
+        assertTrue(
+            tmp.resolve("players/" + a + ".json")
+                .toFile()
+                .isFile(),
+            "the own-skin choice is saved, not an empty record");
+        server = newServer(new ModelServer.Settings());
+        server.loadNow();
+        ca = connect(a);
+        run(200);
+        ca.send(new Message.Select(alex, null, true));
+        deliver();
+        assertNull(ca.keys.get(a), "his own skin stays");
+        assertTrue(ca.keys.containsKey(a));
+
+        // a player the server never saw takes his client's saved choice (when allowed)
+        Client cb = connect(b);
+        cb.send(new Message.Select("builtin:misc/1_alex", null, true));
+        deliver();
+        assertEquals("builtin:misc/1_alex", cb.keys.get(b));
+    }
+
+    @Test
     void operatorCommands() throws ModelServer.CommandError {
         Client ca = connect(a);
         Client cb = connect(b);

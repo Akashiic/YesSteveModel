@@ -24,6 +24,7 @@ gui.futura3d.picker.own_skin=Usar minha skin (Steve/Alex)
 gui.futura3d.picker.own_skin_in_use=Usando minha skin
 gui.futura3d.picker.in_use=Em uso
 gui.futura3d.picker.locked=Bloqueado
+gui.futura3d.picker.no_server=Este servidor não tem o 3D Futura Engine: aqui todos ficam com a aparência padrão. Sua escolha fica salva para os servidores que têm.
 gui.futura3d.picker.locked_tip=Você precisa de permissão do servidor para usar este modelo
 gui.futura3d.picker.failed=Não carregou
 gui.futura3d.picker.loading=Carregando...

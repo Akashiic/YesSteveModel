@@ -184,7 +184,9 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         if (now != handler || switched) {
             handshakeCompleted = false;
             if (switched) {
-                Futura3D.LOG.info("Server switch (new FML handshake on the same connection): saying hello again");
+                Futura3D.LOG.info(
+                    "Server switch (new join or FML handshake on the same connection): saying hello again;"
+                        + " until a server with the mod answers, everyone has the default look");
             }
             end();
             handler = now;
@@ -364,6 +366,14 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
      */
     @SubscribeEvent
     public void onHandshake(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        handshakeCompleted = true;
+    }
+
+    /**
+     * A server join ({@code S01PacketJoinGame}): the first of the connection, or a proxy moving the player to another
+     * server, modded or not (NetHandlerPlayClientJoinMixin). Treated as a switch, as a handshake reset is.
+     */
+    public void serverJoined() {
         handshakeCompleted = true;
     }
 

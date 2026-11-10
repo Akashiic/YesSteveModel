@@ -75,6 +75,11 @@ public final class ConnectHarness {
         if (!launched) {
             if (mc.currentScreen instanceof GuiMainMenu) {
                 launched = true;
+                if ("lobby".equals(model)) {
+                    // a saved local choice from the main menu: a server without the mod must not show it
+                    ModelSelection.INSTANCE.requestLocal("builtin:wine_fox/18_wedding", null);
+                    report("lobby: saved local choice " + ModelSelection.INSTANCE.localKey());
+                }
                 mc.gameSettings.pauseOnLostFocus = false;
                 report("connecting to " + host + ":" + port);
                 // arms the latch FML's handshake waits on (connectToServer needs the multiplayer screen's data), then
@@ -98,6 +103,10 @@ public final class ConnectHarness {
         }
         int t = ++ticks;
         String name = mc.thePlayer.getCommandSenderName();
+        if ("lobby".equals(model)) {
+            lobbyTick(mc, t);
+            return;
+        }
         mc.gameSettings.thirdPersonView = 2;
         mc.thePlayer.rotationPitch = 10;
         if (t == 20) {
@@ -169,6 +178,34 @@ public final class ConnectHarness {
     private static String locks() {
         com.akashic.futura.client.ModelRegistry r = com.akashic.futura.client.ModelRegistry.INSTANCE;
         return LOCKED + " locked=" + r.isLocked(LOCKED) + ", " + FREE + " locked=" + r.isLocked(FREE);
+    }
+
+    /** "connect host:port lobby": a server without the mod (vanilla, or a Paper lobby). */
+    private void lobbyTick(Minecraft mc, int t) {
+        mc.gameSettings.thirdPersonView = 2;
+        mc.thePlayer.rotationPitch = 10;
+        if (t == 300) {
+            report("lobby: t=15s " + ClientNetwork.INSTANCE.status());
+            report(
+                "lobby: local player's selection " + ModelSelection.INSTANCE.keyOf(mc.thePlayer.getUniqueID())
+                    + ", drawn with "
+                    + com.akashic.futura.client.PlayerModels.INSTANCE.keyOf(mc.thePlayer)
+                    + ", saved local choice still "
+                    + ModelSelection.INSTANCE.localKey());
+            shot("lobby-default-look");
+        } else if (t == 320) {
+            ModelSelection.INSTANCE.requestLocal("builtin:wine_fox/01_taisho_maid", null);
+        } else if (t == 340) {
+            report(
+                "lobby: after picking a model there, drawn with "
+                    + com.akashic.futura.client.PlayerModels.INSTANCE.keyOf(mc.thePlayer)
+                    + ", saved local choice "
+                    + ModelSelection.INSTANCE.localKey());
+            shot("lobby-after-pick");
+        } else if (t == 360) {
+            ModelSelection.INSTANCE.requestLocal("builtin:wine_fox/18_wedding", null);
+            finish(mc);
+        }
     }
 
     private void shot(String name) {
