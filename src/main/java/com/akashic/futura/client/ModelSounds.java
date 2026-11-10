@@ -25,6 +25,7 @@ import net.minecraft.util.ResourceLocation;
 
 import com.akashic.futura.Futura3D;
 import com.akashic.futura.anim.SoundBackend;
+import com.akashic.futura.audio.OggOpusDecoder;
 import com.akashic.futura.model.OggKind;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -35,11 +36,12 @@ import paulscode.sound.SoundSystem;
 import paulscode.sound.SoundSystemConfig;
 
 /**
- * Plays model sounds through 1.7.10's sound system. A model's Ogg Vorbis files are not resource-pack sounds, so they go
+ * Plays model sounds through 1.7.10's sound system. A model's Ogg files are not resource-pack sounds, so they go
  * straight to paulscode's {@link SoundSystem} (the one inside {@link SoundManager}) with a URL that serves the bytes
  * read from the model; a name with {@code :} is a vanilla sound event, played as a moving {@link ISound}. Sounds follow
  * the player that started them, use the "Players" volume, stop when he goes away, and are limited per player and in
- * total. Ogg Opus files (what upstream's converter writes) are skipped with a log line: 1.7.10 only decodes Vorbis.
+ * total. Ogg Vorbis files go to 1.7.10's JOrbis codec ({@code .ogg} identifier); Ogg Opus files (what upstream's
+ * converter writes) to the mod's {@link CodecOggOpus} ({@code .opus} identifier), the same way otherwise.
  */
 public final class ModelSounds {
 
@@ -75,6 +77,9 @@ public final class ModelSounds {
         FMLCommonHandler.instance()
             .bus()
             .register(INSTANCE);
+        if (!CodecOggOpus.register()) {
+            Futura3D.LOG.warn("Ogg Opus codec not registered with the sound system: Opus model sounds will be skipped");
+        }
     }
 
     /** The sound backend of a player drawn with a model. */
@@ -235,7 +240,12 @@ public final class ModelSounds {
         }
         float category = Minecraft.getMinecraft().gameSettings.getSoundLevel(SoundCategory.PLAYERS);
         float gain = Math.max(0, Math.min(1, volume * category));
-        String identifier = "futura3d_" + modelId(model) + "_" + Integer.toHexString(name.hashCode()) + ".ogg";
+        // paulscode picks the codec by the identifier's extension: JOrbis for .ogg, CodecOggOpus for .opus
+        boolean opus = OggKind.OPUS.equals(OggKind.of(data));
+        String identifier = "futura3d_" + modelId(model)
+            + "_"
+            + Integer.toHexString(name.hashCode())
+            + (opus ? "." + CodecOggOpus.EXTENSION : ".ogg");
         String source = "futura3d_" + (nextSource++);
         URL url;
         try {
@@ -278,11 +288,12 @@ public final class ModelSounds {
         if (warned.add("started:" + model.key + "/" + name)) {
             // once per sound and model: the sound system took it (headless runs have no audio to hear)
             Futura3D.LOG.info(
-                "Model sound {} of {} handed to the sound system as {} ({} bytes, {})",
+                "Model sound {} of {} handed to the sound system as {} ({} bytes, {}, {})",
                 name,
                 model.key,
                 source,
                 data.length,
+                opus ? "Ogg Opus" : "Ogg Vorbis",
                 data.length > STREAM_ABOVE ? "streamed" : "decoded");
         }
         return new Playing(entity, loop, tick) {
@@ -326,7 +337,7 @@ public final class ModelSounds {
         return id;
     }
 
-    /** The file's bytes, cached per model; null (logged once) when unreadable, too large or not Ogg Vorbis. */
+    /** The file's bytes, cached per model; null (logged once) when unreadable, too large or not playable Ogg. */
     private byte[] read(ClientModel model, String name, String path) {
         Map<String, byte[]> cache = bytes.computeIfAbsent(model, k -> new HashMap<>());
         if (cache.containsKey(name)) {
@@ -348,17 +359,32 @@ public final class ModelSounds {
         }
         if (data != null) {
             String kind = OggKind.of(data);
-            if (!OggKind.VORBIS.equals(kind)) {
-                Futura3D.LOG.info(
-                    "Skipped sound {} of {}: {} (only Ogg Vorbis plays on 1.7.10)",
-                    path,
-                    model.key,
-                    OggKind.OPUS.equals(kind) ? "Ogg Opus" : "not an Ogg Vorbis file");
+            if (OggKind.OPUS.equals(kind)) {
+                data = checkOpus(model, path, data);
+            } else if (!OggKind.VORBIS.equals(kind)) {
+                Futura3D.LOG.info("Skipped sound {} of {}: not an Ogg Vorbis or Ogg Opus file", path, model.key);
                 data = null;
             }
         }
         cache.put(name, data);
         return data;
+    }
+
+    /**
+     * The bytes if the Opus codec is there and the headers are ones it plays (checked here, not on paulscode's thread).
+     */
+    private static byte[] checkOpus(ClientModel model, String path, byte[] data) {
+        if (!CodecOggOpus.registered()) {
+            Futura3D.LOG.info("Skipped sound {} of {}: Ogg Opus (codec not registered)", path, model.key);
+            return null;
+        }
+        try {
+            OggOpusDecoder.probe(data);
+            return data;
+        } catch (IOException e) {
+            Futura3D.LOG.info("Skipped sound {} of {}: Ogg Opus not playable ({})", path, model.key, e.getMessage());
+            return null;
+        }
     }
 
     private void warnOnce(String key, String message, Object... args) {
