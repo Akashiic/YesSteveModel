@@ -129,7 +129,86 @@ public final class RenderHarness {
         viewSteps();
         langSteps();
         replacementSteps();
+        skinSteps();
         onlySteps();
+    }
+
+    // The default look: the player's own skin on the Steve/Alex model ("only skin"). A synthetic skin painted by
+    // body part (head red, body green, right arm blue, left arm yellow, right leg cyan, left leg magenta, second
+    // layer white rims) shows where each part of the skin lands on the YSM skeleton.
+    private void skinSteps() {
+        step("skin-steve-front", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.force(null);
+            com.akashic.futura.client.ModelSelection.INSTANCE.requestLocal(null, null);
+            com.akashic.futura.client.PlayerSkins.INSTANCE
+                .setTestSkin(Minecraft.getMinecraft().thePlayer, testSkin(false), false);
+            view(2, 0);
+            atShot = () -> report("skin model " + PlayerModels.INSTANCE.keyOf(Minecraft.getMinecraft().thePlayer));
+        });
+        step("skin-steve-back", () -> view(1, 30));
+        step("skin-alex-front", () -> {
+            com.akashic.futura.client.PlayerSkins.INSTANCE
+                .setTestSkin(Minecraft.getMinecraft().thePlayer, testSkin(true), true);
+            view(2, 0);
+            atShot = () -> report("skin model " + PlayerModels.INSTANCE.keyOf(Minecraft.getMinecraft().thePlayer));
+        });
+        step("skin-alex-side", () -> view(2, 90));
+        step("skin-legacy-64x32", () -> {
+            java.awt.image.BufferedImage full = testSkin(false);
+            com.akashic.futura.client.PlayerSkins.INSTANCE
+                .setTestSkin(Minecraft.getMinecraft().thePlayer, full.getSubimage(0, 0, 64, 32), false);
+            view(2, 0);
+        });
+        step("skin-none", () -> {
+            com.akashic.futura.client.PlayerSkins.INSTANCE.setTestSkin(Minecraft.getMinecraft().thePlayer, null, false);
+            view(2, 0);
+            atShot = () -> report(
+                "no skin: model " + PlayerModels.INSTANCE.keyOf(Minecraft.getMinecraft().thePlayer)
+                    + " with its own texture");
+        });
+        step("skin-end", () -> {
+            PlayerModels.INSTANCE.use("default");
+            view(2, 0);
+        });
+    }
+
+    /** A 64x64 skin painted by part (slim: 3-pixel arms). */
+    private static java.awt.image.BufferedImage testSkin(boolean slim) {
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+            64,
+            64,
+            java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        int arm = slim ? 14 : 16;
+        Object[][] parts = { { 0, 0, 32, 16, 0xFFD03030 }, // head
+            { 16, 16, 24, 16, 0xFF30A030 }, // body
+            { 40, 16, arm, 16, 0xFF3050D0 }, // right arm
+            { 32, 48, arm, 16, 0xFFE0D030 }, // left arm
+            { 0, 16, 16, 16, 0xFF30C0C0 }, // right leg
+            { 16, 48, 16, 16, 0xFFC030C0 } }; // left leg
+        for (Object[] p : parts) {
+            g.setColor(new java.awt.Color((Integer) p[4], true));
+            g.fillRect((Integer) p[0], (Integer) p[1], (Integer) p[2], (Integer) p[3]);
+        }
+        // the face (front of the head: 8..16, 8..16): eyes and a mouth
+        g.setColor(java.awt.Color.WHITE);
+        g.fillRect(9, 11, 2, 1);
+        g.fillRect(13, 11, 2, 1);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillRect(10, 11, 1, 1);
+        g.fillRect(13, 11, 1, 1);
+        g.fillRect(11, 14, 2, 1);
+        // second layer: white rims (hat band, jacket hem, sleeve and trouser cuffs)
+        g.setColor(java.awt.Color.WHITE);
+        g.fillRect(32, 14, 32, 2); // hat band
+        g.fillRect(16, 46, 24, 2); // jacket hem
+        g.fillRect(40, 46, arm, 2); // right sleeve cuff
+        g.fillRect(48, 62, arm, 2); // left sleeve cuff
+        g.fillRect(0, 46, 16, 2); // right trouser cuff
+        g.fillRect(0, 62, 16, 2); // left trouser cuff
+        g.dispose();
+        return img;
     }
 
     // Etapa 6: the first-person camera height from the model (ViewLocator, else Head). Steps "view-*".

@@ -28,6 +28,9 @@ public class ClientProxy extends CommonProxy {
         ClientNetwork.register();
         BackhandOffhand.install();
         ModelSounds.register();
+        cpw.mods.fml.common.FMLCommonHandler.instance()
+            .bus()
+            .register(PlayerSkins.INSTANCE);
         if (new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness").isFile()) {
             try {
                 // Development only: the dev package is not in release jars.

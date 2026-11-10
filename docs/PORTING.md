@@ -1013,6 +1013,39 @@ Mudanças que tocam o que já existia:
 
 ![O jogador com o modelo vindo de um .ysm v2 do servidor, guardado só na memória do cliente](img/etapa6-ysm-legado-rede.png)
 
+## Modelo padrão: a skin do jogador no Steve/Alex
+
+Pedido da rede depois do teste de produção: o modelo de quem não escolheu nenhum passa a ser o Steve ou o Alex no
+esqueleto do YSM (os embutidos `misc/2_steve` e `misc/1_alex`, cujas UVs seguem o layout da skin 64x64: segunda
+camada, braço e perna esquerdos próprios), **com a skin do próprio jogador**. O upstream não faz isso (o Steve e o
+Alex dele têm textura fixa e o padrão é o modelo `default`).
+
+* `client/PlayerSkins`: a textura vem do perfil do jogador (propriedade `textures`, lida sem rede como o vanilla:
+  `MinecraftSessionService.getTextures(perfil, false)`; para o jogador local, `fillProfileProperties` se faltar).
+  `model: slim` nos metadados escolhe o Alex. A imagem é baixada aqui (o 1.7.10 corta o que baixa para 64x32), guardada
+  em `<mcDataDir>/futura3d/skins/<hash>.png`, e normalizada por `model/SkinImages` como o Minecraft 1.8 faz: skin 64x32
+  antiga ganha o braço e a perna esquerdos espelhados dos direitos e segunda camada vazia; camada base opaca; a camada
+  do chapéu de skin antiga toda opaca é limpa. Partições de face (translúcido/recorte) pelo alfa da skin de cada
+  jogador. Sem skin no perfil (servidor offline sem plugin de skin): Steve ou Alex pela regra do UUID do 1.8+, com a
+  textura do próprio modelo.
+* `PlayerModels`: sem modelo escolhido, a chave do jogador é a do Steve/Alex; enquanto o modelo escolhido carrega, o
+  jogador também aparece assim (antes era o `default`). O `builtin:default` continua carregado: é a reserva e a fonte
+  das animações que o Steve/Alex não têm (`main` e `tac` só; o resto vem do padrão, como sempre). Os dois modelos
+  carregam no início e nunca são liberados.
+* Servidor e protocolo não mudam: "sem escolha" já era a chave nula (`/futura3d set <jogador> default`). O
+  `builtin:default` explícito continua escolhível no seletor; o botão **Usar minha skin (Steve/Alex)** volta ao
+  padrão.
+* Opção `own_skin_default` (padrão `true`) em `config/futura3d/client.properties`: `false` volta ao modelo `default`.
+* `FuturaModels.modelKey` de quem usa a própria skin devolve `builtin:misc/2_steve` ou `builtin:misc/1_alex`.
+
+![Skin sintética pintada por parte no Steve (frente, costas), no Alex (frente, lado), a mesma skin em 64x32 (membros esquerdos espelhados, sem segunda camada) e um jogador sem skin (Alex com a textura do modelo)](img/etapa6-skin-padrao.png)
+
+Harness: `only skin`. Testes: `SkinImagesTest` (conversão 64x32, camadas, regra Steve/Alex). **A checar**: skins
+reais pela rede de produção (Velocity com skins encaminhadas, ou SkinsRestorer no Crucible offline), a skin de outro
+jogador chegando depois do primeiro desenho (ele aparece com a textura do modelo até ela baixar), o olho que pisca
+(as pálpebras e pupilas do Steve/Alex leem a faixa x56–64/y0–8 da skin, vazia numa skin normal: o piscar não aparece) e
+a capa (não desenhada, como nos outros modelos); o botão novo do seletor (não fotografado).
+
 ## Fases
 
 1. **Prova:** ler um modelo CC0 embutido, assar em display lists, desenhar no lugar do jogador local; medir ms/quadro

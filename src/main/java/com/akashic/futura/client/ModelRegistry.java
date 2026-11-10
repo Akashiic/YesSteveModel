@@ -109,6 +109,12 @@ public final class ModelRegistry {
             entries.put(entry.key, entry);
         }
         loadNow(DEFAULT);
+        // the default look (a player's own skin on Steve or Alex, PlayerSkins) needs both models at once
+        for (String key : new String[] { PlayerSkins.STEVE, PlayerSkins.ALEX }) {
+            if (entries.containsKey(key)) {
+                loadNow(key);
+            }
+        }
     }
 
     /**
@@ -166,7 +172,10 @@ public final class ModelRegistry {
     public void releaseUnused(java.util.Set<String> keep, java.util.Set<ClientModel> used) {
         boolean any = false;
         for (Entry entry : entries.values()) {
-            if (entry.folder == null || DEFAULT.equals(entry.key) || keep.contains(entry.key)) {
+            if (entry.folder == null || DEFAULT.equals(entry.key)
+                || PlayerSkins.STEVE.equals(entry.key)
+                || PlayerSkins.ALEX.equals(entry.key)
+                || keep.contains(entry.key)) {
                 continue;
             }
             ClientModel current = entry.current;
