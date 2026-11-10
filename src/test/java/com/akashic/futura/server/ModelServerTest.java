@@ -242,6 +242,27 @@ class ModelServerTest {
     }
 
     @Test
+    void playersWhoLeaveLeaveNothingInMemory() {
+        for (int i = 0; i < 500; i++) {
+            UUID p = new UUID(42, i);
+            Client c = connect(p);
+            server.received(p, new Message.Select("builtin:misc/2_steve", null));
+            server.received(p, new Message.EmoteRequest("extra0"));
+            deliver();
+            server.leave(p);
+            clients.remove(p);
+        }
+        server.accessReport(new UUID(43, 1)); // an offline player
+        server.tick();
+        assertEquals(0, server.sessionCount());
+        assertEquals(
+            0,
+            server.store()
+                .cached(),
+            "no player record stays cached after leaving");
+    }
+
+    @Test
     void withPermissionsEveryModelIsLockedButTheFreeOnes() {
         permissionServer();
         Client ca = connect(a);

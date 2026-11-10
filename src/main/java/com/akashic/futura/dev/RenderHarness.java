@@ -132,7 +132,123 @@ public final class RenderHarness {
         skinSteps();
         remoteSteps();
         diagnoseSteps();
+        leakSteps();
         onlySteps();
+    }
+
+    // Memory ("only leak"): 30 other players come into view with a model and leave; after a GC none of them may stay
+    // in memory (a player entity keeps its whole world: a proxy switch would keep the old one).
+    private final List<java.lang.ref.WeakReference<net.minecraft.entity.Entity>> spawned = new ArrayList<>();
+    private int leakSpawn;
+
+    private void leakSteps() {
+        for (int i = 0; i < 3; i++) {
+            step("leak-spawn" + i, () -> {
+                PlayerModels.INSTANCE.setEnabled(true);
+                PlayerModels.INSTANCE.use("default");
+                look(0, 0, 18);
+                leakSpawn = 1;
+            });
+        }
+        // the server catalog reset again and again (as a proxy switch or /futura3d reload does): models, display lists
+        // and textures must come back to the same counts
+        for (int i = 0; i < 6; i++) {
+            final int round = i;
+            step("leak-reload" + i, () -> {
+                Minecraft mc = Minecraft.getMinecraft();
+                MinecraftServer server = MinecraftServer.getServer();
+                PlayerModels.INSTANCE.force(null);
+                if (round == 0) {
+                    server.getCommandManager()
+                        .executeCommand(
+                            server,
+                            "futura3d set " + mc.thePlayer.getCommandSenderName() + " " + diagModel());
+                } else {
+                    server.getCommandManager()
+                        .executeCommand(server, "futura3d reload");
+                }
+                view(2, 0);
+                atShot = () -> {
+                    System.gc();
+                    Runtime rt = Runtime.getRuntime();
+                    report(
+                        "leak reload " + round
+                            + ": model "
+                            + PlayerModels.INSTANCE.keyOf(mc.thePlayer)
+                            + ", display lists "
+                            + com.akashic.futura.client.render.GeometryRenderer.liveLists()
+                            + ", textures "
+                            + com.akashic.futura.client.render.ModelTexture.live()
+                            + ", heap used "
+                            + (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+                            + " MiB");
+                };
+            });
+            step("leak-reload" + i + "-wait", () -> view(2, 0));
+        }
+        step("leak-check", () -> {
+            leakSpawn = 0;
+            removeFake();
+            atShot = () -> {
+                for (int i = 0; i < 4; i++) {
+                    System.gc();
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread()
+                            .interrupt();
+                    }
+                }
+                int alive = 0;
+                for (java.lang.ref.WeakReference<net.minecraft.entity.Entity> r : spawned) {
+                    alive += r.get() == null ? 0 : 1;
+                }
+                Runtime rt = Runtime.getRuntime();
+                report(
+                    "leak: " + alive
+                        + " of "
+                        + spawned.size()
+                        + " removed players still in memory; animators "
+                        + PlayerModels.INSTANCE.animatorCount()
+                        + ", replacement states "
+                        + com.akashic.futura.client.EntityReplacements.INSTANCE.stateCount()
+                        + ", heap used "
+                        + (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+                        + " MiB");
+                if (alive > 0 && Boolean.getBoolean("futura3d.harness.heapdump")) {
+                    try {
+                        java.lang.management.ManagementFactory
+                            .newPlatformMXBeanProxy(
+                                java.lang.management.ManagementFactory.getPlatformMBeanServer(),
+                                "com.sun.management:type=HotSpotDiagnostic",
+                                com.sun.management.HotSpotDiagnosticMXBean.class)
+                            .dumpHeap(new File(mc().mcDataDir, "futura3d-leak.hprof").getPath(), true);
+                        report("leak: heap dump written");
+                    } catch (Exception e) {
+                        report("leak: heap dump failed " + e);
+                    }
+                }
+            };
+        });
+    }
+
+    private static Minecraft mc() {
+        return Minecraft.getMinecraft();
+    }
+
+    /** One more other player each tick while a leak step runs (the previous one leaves the world). */
+    private void leakTick() {
+        if (leakSpawn == 0 || spawned.size() >= 30 || ticks % 4 != 0) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        removeFake();
+        fake = new EntityOtherPlayerMP(mc.theWorld, new GameProfile(java.util.UUID.randomUUID(), "leak"));
+        fake.setPositionAndRotation(0.5, 4 + fake.yOffset, 3.5, 0, 0);
+        // as S0CPacketSpawnPlayer does: no id before addEntityToWorld (vanilla then lost the entity in entityList for
+        // good; WorldClientEntityIdMixin gives the id first)
+        mc.theWorld.addEntityToWorld(FAKE_ID, fake);
+        spawned.add(new java.lang.ref.WeakReference<>(fake));
     }
 
     // A server model from run/client/config/futura3d/models/<name> ("only diag", name in futura3d-harness-model,
@@ -1636,6 +1752,7 @@ public final class RenderHarness {
     /** Every tick: the use key, the second player's yaw, bow and hurt time. */
     private void itemTick() {
         Minecraft mc = Minecraft.getMinecraft();
+        leakTick();
         if (ticks == 5 && atTick5 != null) {
             Runnable r = atTick5;
             atTick5 = null;

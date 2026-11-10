@@ -27,8 +27,11 @@ public final class ModelTexture extends AbstractTexture {
     private static final Deque<ResourceLocation> FREE = new ArrayDeque<>();
     private static int counter;
 
+    /** Textures uploaded and not released (leak checks). */
+    private static int live;
     private BufferedImage image;
     private ResourceLocation location;
+    private boolean uploaded;
 
     /** @param image the decoded texture; kept until {@link #location()} uploads it */
     public ModelTexture(BufferedImage image) {
@@ -42,6 +45,8 @@ public final class ModelTexture extends AbstractTexture {
             location = free != null ? free : new ResourceLocation(Futura3D.MODID, "dynamic/model_" + ++counter);
             if (image != null) {
                 TextureUtil.uploadTextureImageAllocate(getGlTextureId(), image, false, false);
+                live++;
+                uploaded = true;
                 image = null;
             }
             Minecraft.getMinecraft()
@@ -57,7 +62,16 @@ public final class ModelTexture extends AbstractTexture {
     }
 
     /** Frees the GL texture and gives the location back (render thread). */
+    /** Textures uploaded and not released (render thread; leak checks). */
+    public static int live() {
+        return live;
+    }
+
     public void release() {
+        if (uploaded) {
+            live--;
+            uploaded = false;
+        }
         image = null;
         deleteGlTexture();
         if (location != null) {

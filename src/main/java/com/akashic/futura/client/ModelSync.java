@@ -35,12 +35,15 @@ public final class ModelSync {
 
     /** The sink of one player's animator. */
     static SyncSink sinkFor(AbstractClientPlayer player) {
+        // Weak, as ModelSounds.backend: the sink lives in the player's animator, held by a map weakly keyed by him.
+        java.lang.ref.WeakReference<AbstractClientPlayer> ref = new java.lang.ref.WeakReference<>(player);
         return values -> {
             Transport t = transport;
             if (t == null || !t.connected()) {
                 return false;
             }
-            if (player == Minecraft.getMinecraft().thePlayer) {
+            AbstractClientPlayer p = ref.get();
+            if (p != null && p == Minecraft.getMinecraft().thePlayer) {
                 t.send(values);
             }
             return true;

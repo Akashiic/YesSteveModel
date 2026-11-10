@@ -285,6 +285,11 @@ public final class PlayerModels {
         return used;
     }
 
+    /** Players with an animator (leak checks of the harness). */
+    public int animatorCount() {
+        return animators.size();
+    }
+
     /** Drops the animators and frames of models that were freed (server models after a disconnect). */
     void forgetReleased() {
         for (Iterator<Animated> it = animators.values()

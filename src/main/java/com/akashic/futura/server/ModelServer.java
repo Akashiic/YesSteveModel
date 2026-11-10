@@ -924,8 +924,23 @@ public final class ModelServer {
         relayEmote(player, animation, true);
     }
 
+    /** Players with a session (leak checks). */
+    int sessionCount() {
+        return sessions.size();
+    }
+
     /** {@code /futura3d access <player>}: what he may select, and the node of each model. */
     public List<String> accessReport(UUID player) {
+        try {
+            return accessLines(player);
+        } finally {
+            if (!sessions.containsKey(player)) {
+                store.forget(player); // an offline player's record is not kept in memory
+            }
+        }
+    }
+
+    private List<String> accessLines(UUID player) {
         List<String> lines = new ArrayList<>();
         lines.add(
             (settings.requirePermission ? "Permissions required" : "Only restricted models need permission")

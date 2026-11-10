@@ -75,7 +75,8 @@ public final class ThirdPersonRenderer {
     private long frameCount;
     private float partialTicks;
     /** The player of the last draw (world or screen) and its frame, for {@code RenderPlayerEvent.Post} handlers. */
-    private EntityPlayer lastPlayer;
+    /** Weak: compared by identity only, it must not keep a player (and his world) after he leaves. */
+    private java.lang.ref.WeakReference<EntityPlayer> lastPlayer;
     private Frame lastFrame;
     private long lastFrameCount = -10;
 
@@ -146,7 +147,7 @@ public final class ThirdPersonRenderer {
         if (!gui) {
             frame.frame = frameCount;
         }
-        lastPlayer = player;
+        lastPlayer = new java.lang.ref.WeakReference<>(player);
         lastFrame = frame;
         lastFrameCount = frameCount;
         if (player.isInvisible()) {
@@ -322,7 +323,7 @@ public final class ThirdPersonRenderer {
 
     /** Whether the player draw that just ended (world or screen) was this player's model. */
     boolean justDrew(EntityPlayer player) {
-        return player != null && lastPlayer == player && lastFrameCount == frameCount;
+        return player != null && lastPlayer != null && lastPlayer.get() == player && lastFrameCount == frameCount;
     }
 
     /**

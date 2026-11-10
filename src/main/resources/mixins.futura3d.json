@@ -18,7 +18,8 @@
     "RenderMinecartMixin",
     "RendererLivingEntityMixin",
     "RenderSnowballMixin",
-    "RenderFireballMixin"
+    "RenderFireballMixin",
+    "WorldClientEntityIdMixin"
   ],
   "server": []
 }

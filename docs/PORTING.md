@@ -1112,6 +1112,32 @@ opcionais do modelo (caudas por nível, máscara, asas, armadura...).
 
 **A checar** no servidor: Sparkle e Hu Tao (mesmo tipo de física; os arquivos não foram testados aqui).
 
+## Vazamentos de memória
+
+Revisão pedida depois do teste de produção. Harness `only leak`: 30 jogadores remotos entram na vista com modelo e
+saem (spawn igual ao da rede), GC, e conta quantos continuam na memória; depois 6 resets seguidos do catálogo do
+servidor (`/futura3d reload`, o mesmo caminho de uma troca de servidor pelo proxy) contando display lists, texturas e
+heap. Com `-Dfutura3d.harness.heapdump=true` (no `JAVA_TOOL_OPTIONS`) grava `futura3d-leak.hprof` se sobrar alguém.
+
+* **Nosso, corrigido.** O animador de cada jogador fica num `WeakHashMap` chaveado pelo jogador, mas o som
+  (`ModelSounds.backend`) e o `ysm.sync` (`ModelSync.sinkFor`) do animador guardavam o jogador por referência forte: a
+  entrada nunca saía, e com o jogador ficava o `worldObj` dele (o mundo inteiro: atrás do proxy, cada troca de servidor
+  deixava o mundo anterior na memória). O mesmo nos projéteis/veículos substituídos (som e `rider`) e no último jogador
+  desenhado do `ThirdPersonRenderer`. Agora são referências fracas. Medido: antes 1 em cada jogador com animador ficava
+  preso (heap dump: `WeakHashMap$Entry` → lambdas de `ModelSounds`/`ModelSync` → jogador); depois 0 de 30.
+* **Do Minecraft 1.7.10, corrigido aqui** (`WorldClientEntityIdMixin`): `WorldClient.addEntityToWorld` põe a entidade
+  no `entityList` (um `HashSet`, hash = id) antes de dar o id dela, então a remoção nunca a acha. Jogadores e pinturas
+  vêm por esse caminho: todo jogador que entrou no raio de visão ficava na memória até sair do mundo (num lobby cheio,
+  horas de acúmulo). O Hodgepodge 2.7.219 do pack não corrige isso (o mixin dele em `WorldClient` é de som). O mixin dá
+  o id antes, como os outros spawns do vanilla já fazem. Medido: sem ele, 100 de 100 jogadores ficavam; com ele, 0.
+* **Estável:** resets do catálogo (modelos liberados e recarregados): display lists e texturas voltam ao mesmo número
+  a cada rodada, heap estável; o cache de Molang tem limite (16 384); as prévias do seletor são liberadas ao fechar;
+  sons de modelos liberados são descarregados do sistema de som; skins de quem não é visto há 60 s são liberadas.
+* **Servidor:** 500 jogadores entrando e saindo não deixam sessão nem registro na memória (`ModelServerTest`);
+  `/futura3d access` de um jogador offline não guarda mais o registro dele.
+
+**A checar** no pack: uso de memória numa sessão longa no lobby com troca de servidores (F3 ou VisualVM).
+
 ## Permissões por modelo (`futura3d.playermodel.<modelo>`)
 
 Pedido da rede (controle de quem entra para "trollar"): por padrão ninguém escolhe modelo algum; todos aparecem no
