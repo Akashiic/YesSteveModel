@@ -124,7 +124,180 @@ public final class RenderHarness {
         serverSteps();
         controllerSteps();
         configSteps();
+        viewSteps();
+        langSteps();
         onlySteps();
+    }
+
+    // Etapa 6: the first-person camera height from the model (ViewLocator, else Head). Steps "view-*".
+    private void viewSteps() {
+        step("view-vanilla", () -> {
+            viewScene();
+            PlayerModels.INSTANCE.setEnabled(false);
+            keys(false, false, false, false);
+            viewAt();
+            atShot = () -> reportView("vanilla");
+        });
+        step("view-default", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            keys(false, false, false, false);
+            viewAt();
+            atShot = () -> reportView("default standing");
+        });
+        step("view-default-sneak", () -> {
+            keys(false, true, false, false);
+            viewAt();
+            atShot = () -> reportView("default sneaking");
+        });
+        step("view-vanilla-sneak", () -> {
+            PlayerModels.INSTANCE.setEnabled(false);
+            keys(false, true, false, false);
+            viewAt();
+            atShot = () -> reportView("vanilla sneaking");
+        });
+        step("view-momo-small", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("wine_fox/14_momo");
+            keys(false, false, false, false);
+            viewAt();
+            setVariable("player_size", 0.4);
+            atShot = () -> reportView("momo v.player_size=0.4");
+        });
+        step("view-momo-big", () -> {
+            setVariable("player_size", 2.0);
+            viewAt();
+            atShot = () -> reportView("momo v.player_size=2");
+        });
+        step("view-momo-big-third", () -> {
+            Minecraft.getMinecraft().gameSettings.thirdPersonView = 2;
+            atShot = () -> reportView("momo v.player_size=2, third person (vanilla camera)");
+        });
+        step("view-end", () -> {
+            setVariable("player_size", 1.0);
+            PlayerModels.INSTANCE.use("default");
+            keys(false, false, false, false);
+            view(2, 0);
+        });
+    }
+
+    /** A column of coloured wool in front of the spawn, one colour per block of height, to read the eye height. */
+    private void viewScene() {
+        EntityPlayerMP p = serverPlayer(Minecraft.getMinecraft());
+        if (p == null) {
+            return;
+        }
+        for (int y = 4; y < 9; y++) {
+            for (int x = -1; x <= 1; x++) {
+                p.worldObj.setBlock(x, y, 3, Blocks.wool, y - 4 + (x == 0 ? 0 : 8), 3);
+            }
+        }
+    }
+
+    /** First person at the spawn, looking straight south at the column. */
+    private void viewAt() {
+        Minecraft mc = Minecraft.getMinecraft();
+        mc.gameSettings.thirdPersonView = 0;
+        EntityPlayerMP p = serverPlayer(mc);
+        if (p != null) {
+            p.playerNetServerHandler.setPlayerLocation(0.5, 4, 0.5, 0, 0);
+        }
+    }
+
+    private void reportView(String label) {
+        com.akashic.futura.client.ViewCamera c = com.akashic.futura.client.ViewCamera.INSTANCE;
+        report(
+            String.format(
+                Locale.ROOT,
+                "view %s: camera offset %.3f (target %.3f) blocks",
+                label,
+                c.offset(),
+                c.target()));
+    }
+
+    // Etapa 6: the models' own translations in the roulette and the picker. Steps "lang-*".
+    private void langSteps() {
+        step("lang-roulette-zh", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("zh_CN");
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("wine_fox/14_momo");
+            keys(false, false, false, false);
+            view(2, 0);
+            keepScreen = true;
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            mc.displayGuiScreen(new AnimationRouletteScreen(menu));
+        });
+        step("lang-roulette-en", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("en_US");
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            mc.displayGuiScreen(new AnimationRouletteScreen(menu));
+        });
+        step("lang-roulette-sub-en", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            List<RouletteMenu.Entry> entries = menu.pageEntries();
+            for (int i = 0; i < entries.size(); i++) {
+                if (entries.get(i)
+                    .isClassify()) {
+                    report("lang sub-page: " + menu.click(i));
+                    break;
+                }
+            }
+            mc.displayGuiScreen(new AnimationRouletteScreen(menu));
+        });
+        step("lang-roulette-config-pt", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("pt_BR");
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            AnimationRouletteScreen screen = new AnimationRouletteScreen(menu);
+            mc.displayGuiScreen(screen);
+            com.akashic.futura.model.LoadedModel model = PlayerModels.INSTANCE.model();
+            if (model != null && !model.manifest.properties.extraAnimationButtons.isEmpty()) {
+                screen.openConfig(model.manifest.properties.extraAnimationButtons.get(0));
+            }
+        });
+        step("lang-picker-zh", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("zh_CN");
+            PlayerModels.INSTANCE.force(null);
+            mc.displayGuiScreen(
+                new com.akashic.futura.client.gui.ModelPickerScreen().focus("builtin:wine_fox/14_momo", null));
+        });
+        step("lang-picker-zh-loaded", () -> pointAtCard("builtin:wine_fox/14_momo"));
+        step("lang-picker-pt", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("pt_BR");
+            mc.displayGuiScreen(
+                new com.akashic.futura.client.gui.ModelPickerScreen().focus("builtin:wine_fox/14_momo", null));
+            pointAtCard("builtin:wine_fox/14_momo");
+        });
+        step("lang-end", () -> {
+            keepScreen = false;
+            Minecraft mc = Minecraft.getMinecraft();
+            mc.displayGuiScreen(null);
+            setLanguage("en_US");
+            LocalEmotes.INSTANCE.menu()
+                .reset();
+            PlayerModels.INSTANCE.use("default");
+            view(2, 0);
+        });
+    }
+
+    /**
+     * The game language the model texts are looked up in. Only the setting and the font's Unicode flag change (no
+     * resource reload): the game's own texts stay as they were.
+     */
+    private void setLanguage(String code) {
+        Minecraft mc = Minecraft.getMinecraft();
+        mc.gameSettings.language = code;
+        mc.fontRenderer.setUnicodeFlag(code.startsWith("zh") || code.startsWith("ja") || code.startsWith("ko"));
+        report("language " + code);
     }
 
     // Phase 5a: Bedrock controllers, functions and sounds. Steps "ctrl-*" ("only ctrl" runs just these).
