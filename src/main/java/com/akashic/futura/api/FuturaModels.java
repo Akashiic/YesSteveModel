@@ -32,9 +32,9 @@ public final class FuturaModels {
     /**
      * Raised when a method is added; 1: the methods below; 2: {@link #modelKey}; 3: external states
      * ({@link #setExternalState}, {@link #externalState}), {@link #hasAnimation} and {@link #playingAnimation}; 4:
-     * the rod ({@link #FISHING_STATE}, {@link #FISHING_TENSION}, {@link #fishingPhase}).
+     * the rod ({@link #FISHING_STATE}, {@link #FISHING_TENSION}, {@link #fishingPhase}); 5: {@link #setArmPose}.
      */
-    public static final int API_VERSION = 4;
+    public static final int API_VERSION = 5;
 
     /**
      * External state (API 3): any value while the player's main hand holds a SlashBlade-style blade. The model then
@@ -205,6 +205,22 @@ public final class FuturaModels {
             : a.fishingPhase()
                 .name()
                 .toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * API 5: poses the player's model arms for a moment, as a mod poses the vanilla biped's ({@code ModelBiped}'s
+     * {@code bipedRightArm}/{@code bipedLeftArm}): the rotation from hanging straight down, in radians, x y z as
+     * {@code rotateAngleX/Y/Z} (forward raise is negative x). It replaces the animated rotation of {@code RightArm} and
+     * {@code LeftArm}, and the hand locators (where the held item goes) follow. Call it every frame before the player
+     * is drawn ({@code RenderPlayerEvent.Pre}); a pose not set again lapses within a quarter of a second. Null for an
+     * arm leaves it to the animation; both null clears.
+     *
+     * @return false on a dedicated server, or for a pose that is not three finite numbers
+     */
+    public static boolean setArmPose(EntityPlayer player, float[] right, float[] left) {
+        return player != null && client()
+            && PlayerModels.INSTANCE.armPoses()
+                .set(player.getUniqueID(), right, left, System.nanoTime());
     }
 
     /** API 3: a state set with {@link #setExternalState}, or null. */

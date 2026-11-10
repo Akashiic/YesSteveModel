@@ -359,6 +359,8 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         emoteAnnounced = false;
         PlayerModels.INSTANCE.externalStates()
             .clear(); // UUIDs of another world
+        PlayerModels.INSTANCE.armPoses()
+            .clear();
     }
 
     /**

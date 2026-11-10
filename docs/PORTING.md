@@ -326,6 +326,7 @@ responde `false`/`null`. `API_VERSION = 2` (o 2, da fase 4b, acrescenta `modelKe
 | `drewModel(player)`, `locatorInLastDraw(player, nome)` | para quem trata `RenderPlayerEvent.Post`: se o desenho que acabou foi o modelo, e o locator relativo à matriz desse evento (mundo ou inventário). `RenderPlayerEvent.Specials` não dispara para jogador com modelo |
 | `setKeepsItemWhileFishing(Predicate)` | um mod que desenha a própria vara (o Kunftig) mantém o item na mão com a linha fora, no lugar do graveto |
 | `fishingPhase(player)`, `FISHING_STATE`, `FISHING_TENSION` (API 4) | a vara nos modelos: a fase que o modelo toca e os estados que o Kunftig diz (ver "Pesca", abaixo) |
+| `setArmPose(player, direito, esquerdo)` (API 5) | os braços do modelo por um instante, como um mod põe os do bíped (os peixes 3D do Kunftig; ver "Varas e peixes 3D", abaixo) |
 
 ### Linha de pesca
 
@@ -1301,6 +1302,31 @@ jogador com a elytra, em pé, planando de lado, mergulhando e de costas, cada um
 locator. **A checar** em jogo: a versão do EFR do TEOF (os nomes lidos são os do 2.6.2), o próprio jogador planando
 em terceira pessoa e outro jogador num servidor (o planar dele chega pelo `DataWatcher` do EFR), a elytra no slot do
 Baubles Expanded, e com o Akashic Player Backport (que também lê o planar do EFR para o bíped).
+
+## Varas e peixes 3D do Kunftig nos modelos (API 5)
+
+Conferido no harness do Kunftig (`modelrods`: o jar de dev do futura3d e o pack de varas e peixes 3D do
+AkashicFishing, da branch `claude/kind-ride-ts9apr`): as **16 varas 3D saem com a textura certa** na mão do modelo,
+igual ao bíped (a diferença é só o ângulo, que é o da pose do modelo, e um tom um pouco mais claro pela luz). A
+`vara-akashica` dourada no estágio 6 troca de cor de propósito: as texturas `_m6_0` a `_m6_7` são um ciclo de cores.
+
+Os **peixes 3D** estavam errados: o tucunaré e o peixe-palhaço não apareciam (ficavam dentro do corpo) e o pirarucu
+gigante pendia para o chão. As faixas de tamanho do pack mexem no braço do bíped (`braco`/`braco_esquerdo`: o braço à
+frente, as duas mãos, acima da cabeça) e o `display` do peixe é posto para esse braço; o modelo, com o braço parado,
+segurava o peixe num braço que não estava lá. Agora o Kunftig passa a mesma pose para o modelo:
+
+* `FuturaModels.setArmPose(jogador, direito, esquerdo)` (API 5): a rotação do braço a partir de pendurado, em
+  radianos, na convenção do `ModelBiped`; troca a rotação animada do `RightArm`/`LeftArm`, e os locators da mão
+  seguem. Vale por um quarto de segundo (`anim/ArmPoses`): quem para de mandar devolve o braço à animação na hora.
+  A conversão: o bíped é desenhado sob `scale(-1, -1, 1)`, então x e y giram ao contrário dos nossos e z igual (a
+  mesma regra do olhar da cabeça, `headPitch = -pitch`, `netHeadYaw = -yaw`).
+* O Kunftig manda em `RenderPlayerEvent.Pre`, só para modelos segurados que não são vara (as varas têm os clipes de
+  pesca do modelo).
+
+![Varas e peixes 3D do pack do AkashicFishing no modelo default e no bíped (harness modelrods do Kunftig)](img/varas-peixes-kunftig.png)
+
+**A checar** em jogo: os peixes das outras faixas e qualidades, andando com o peixe na mão (o braço fica na pose da
+faixa, sem o balanço de andar), e modelos com braços muito diferentes do padrão.
 
 ## Fases
 
