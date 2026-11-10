@@ -511,19 +511,18 @@ sem serializar):
 
 **A checar**:
 
-* Num Thermos/Crucible de verdade com Java 21: o canal FML convivendo com plugins Bukkit (o registro `REGISTER` do
-  canal, plugins que mexem em plugin messages), o modo offline e o online.
-* Vários jogadores ao mesmo tempo: troca de modelo e emote de outro jogador vistos ao vivo (os testes de unidade
-  cobrem com clientes falsos; no jogo só houve um jogador). Quem chega perto no meio de um emote não o vê (o repasse é
-  só para quem já rastreia).
+* ~~Num Thermos/Crucible de verdade com Java 21: o canal FML convivendo com plugins Bukkit, o modo offline~~: feito
+  no teste do TEOF 5.3 (abaixo); o modo online segue a checar.
+* ~~Vários jogadores ao mesmo tempo: troca de modelo e emote de outro jogador vistos ao vivo~~: feito no teste do
+  TEOF 5.3, com dois clientes. Quem chega perto no meio de um emote não o vê (o repasse é só para quem já rastreia).
 * Links lentos e muitos jogadores baixando juntos: não há limite global, só por jogador; os pedaços disputam a conexão
   com os pacotes do jogo.
 * Cliente vanilla e cliente com o mod em servidor sem o mod (pelo código, nada é mandado a quem não manda hello e o
   hello cai num canal desconhecido; não testado com um cliente vanilla de verdade).
 * Pastas de modelos grandes: a leitura do início é síncrona (o reload não); um servidor com centenas de modelos atrasa
   a partida. O cache do cliente não tem limite de tamanho nem limpeza.
-* A escolha pelo seletor no jogo indo ao servidor por clique (o handler e o `C_SELECT` estão testados com clientes
-  falsos; no harness a troca foi pelo comando).
+* A escolha pelo seletor no jogo indo ao servidor por clique: o caminho do botão (`requestLocal` → `C_SELECT`) foi
+  visto no teste do TEOF 5.3, com o outro jogador vendo a troca; o clique de mouse em si segue a checar.
 
 Testes: 313 (60 desta fase: codec e limites, sessão do cliente, cache em disco, limites com os 24 embutidos,
 repositório com pastas, zips, zip slip, bomba de zip e links, gravação por UUID, fila com limite de taxa e o servidor
@@ -617,7 +616,7 @@ modelos CC0 embutidos), o seletor com eles, e a volta ao `builtin:default` depoi
 * Com a rede (fase 4a): o handler, `locked` vindo do servidor, a troca de modelo de outro jogador ao vivo e
   `clearServerModels` ao desconectar; aqui só foram exercitados pelo harness, sem rede. Com a fase 4a, o registro
   dos modelos do servidor, `clearServerModels` a cada catálogo novo e a troca do próprio jogador foram vistos com um
-  servidor dedicado; a troca de outro jogador ao vivo segue a checar.
+  servidor dedicado; a troca de outro jogador ao vivo e o `locked` foram vistos no teste do TEOF 5.3.
 * Tempo de carga fora do harness (aqui, de 10 a 360 ms por modelo nas threads de carga, a maior parte na primeira
   carga, com o JIT frio) e o custo do seletor com dez prévias animadas numa máquina fraca.
 * Nomes CJK e com códigos `§` nos cartões em outras escalas de interface; um zip de verdade arrastado por um usuário
@@ -625,6 +624,95 @@ modelos CC0 embutidos), o seletor com eles, e a volta ao `builtin:default` depoi
 
 Testes: 253 (fontes de modelo, `ModelInfo` e o índice dos embutidos, `ModelFraming`, a escolha gravada e o contrato de
 `ModelSelection` sem o jogo).
+
+## Teste no TEOF 5.3
+
+Primeira vez que os jars de release (reobfuscados, sem o pacote `dev`) rodaram fora do ambiente de dev: uma cópia do
+servidor de produção (Crucible, Java 21, lançado como em produção, `java @java9args.txt -jar server.jar nogui`, modo
+offline) atualizada para os mods do TEOF 5.3, e dois clientes com o `.minecraft` do TEOF 5.3 inteiro (215 mods,
+Angelica 2.2.43, Backhand 1.8.13, `akashicplayer` com o isolamento de render, Kunftig, GeckoLib), Java 8, sob Xvfb
+com Mesa llvmpipe. Os clientes usam o jar com o harness (`dev/TeofHarness`: `teof <host>:<porta> <A|B> <pasta>` em
+`futura3d-harness`; os dois percorrem a mesma lista de etapas e se esperam numa barreira de arquivos); o servidor usa
+o jar de release. Modelos no servidor: cópias dos embutidos CC0 `misc/1_alex`, `misc/2_steve` e, em `auth/`,
+`misc/3_default_boy`.
+
+![Cada cliente vê o outro com o modelo do servidor: A vê B com Steve, B vê A com Alex](img/teof-dois-jogadores.png)
+![O emote que B toca (pela roleta, sem comando) visto por A; o Default Boy travado de A, depois do grant, visto por B](img/teof-emote-e-troca.png)
+![O seletor (tecla Y) só com os modelos do servidor: S nos três, Default Boy bloqueado para A](img/teof-seletor-servidor.png)
+![A roleta (tecla Z) com o modelo default](img/teof-roleta.png)
+
+**Verificado** (os dois logs e as fotos):
+
+* O cliente 5.3 entra no Crucible com Java 21; o canal FML `futura3d:model` convive com os plugins Bukkit (ProtocolLib,
+  TAB, Essentials, LuckPerms...). O catálogo de 3 modelos (951 811 bytes) baixa na entrada; na segunda entrada vem do
+  cache (0 bytes).
+* **Mixins reobfuscados aplicam**: o harness procura os métodos dos handlers nas classes do jogo (`RenderPlayer`,
+  `ItemRenderer`, `RenderFish`) e acha os seis handlers dos quatro mixins (`redirect$...$futura3d$drawModel`, `handler$...$futura3d$drawModelArm`,
+  `...$beginFrame`, `...$drawBackground`, `...$lineStart`, `...$lineVertex`); nenhum aviso de mixin, refmap ou
+  injeção do futura3d nem do Kunftig nos logs. O `akashicplayer` transforma o `RenderPlayer` por ASM e o redirect
+  continua lá: nada é desenhado duas vezes (o bíped vanilla some sob o modelo).
+* **Dois jogadores ao mesmo tempo** (o ponto que faltava da fase 4a): `/futura3d set` troca os dois e cada cliente vê
+  o modelo do outro; o emote que B toca pela própria roleta (`C_EMOTE`, sem comando) chega a A, e o
+  `/futura3d play` de A chega a B (`isPlayingExtra` do animador do outro jogador verdadeiro nos dois); a escolha pelo
+  seletor (`requestLocal`, o mesmo caminho do botão) vai ao servidor e B vê A trocar; o modelo restrito é recusado
+  (A continua com o anterior), e depois de `/futura3d auth ... add` o mesmo pedido passa e B vê a troca. Num servidor
+  offline o UUID de sessão dos clientes (aleatório, como uma conta original) difere do do servidor, e a tradução do
+  hello funciona.
+* Teclas: Y abre o seletor, Z a roleta (disparadas pelo `KeyBinding` e pelo evento de tecla do FML, como o teclado).
+* Nome sobre a cabeça do outro jogador, sombra, item na mão (o livro do TEOF na mão do Steve), a prévia do jogador no
+  inventário de sobrevivência (com o NEI aberto), a primeira pessoa (o braço do modelo; espada vanilla).
+* Vara: a linha sai da vara na mão do modelo, com a boia moderna do Kunftig; o Kunftig acha a API
+  ("3D Futura Engine found; rods and blades follow its player models").
+* **Backhand (corrigido nesta etapa)**: o Backhand desenha a segunda mão em `RenderPlayer.renderEquippedItems`, que um
+  jogador com modelo nunca alcança, então o item da segunda mão sumia. Agora, com o Backhand presente,
+  `client/BackhandOffhand` liga o `BackhandUtils.getOffhandItem` ao `PlayerModels.setOffhandSource` (por reflexão) e o
+  item vai no `LeftHandLocator` (foto: tocha na mão esquerda do modelo; à direita, o mesmo com os modelos desligados).
+  Em primeira pessoa o Backhand não desenha a segunda mão nem com os modelos desligados (então não é o futura3d).
+* Angelica 2.2.43 com shaders desligados, GL 4.5 core da Mesa (llvmpipe): as display lists do modelo desenham sob o
+  gerenciador de estado do Angelica sem nada a mais.
+
+![Vara: a linha sai da mão do modelo; à direita, a boia do Kunftig vista pelo outro jogador](img/teof-vara.png)
+![Segunda mão do Backhand no modelo (esquerda) e no bíped vanilla com os modelos desligados (direita)](img/teof-segunda-mao.png)
+![Prévia do jogador no inventário](img/teof-inventario.png)
+![Primeira pessoa: o braço do modelo Alex](img/teof-primeira-pessoa.png)
+
+Tempo de quadro no cliente A (llvmpipe, 1280x720, `renderDistance` 4, os dois clientes e o servidor na mesma máquina
+de 4 núcleos: **só serve para comparar entre si**), média de 240 quadros, duas rodadas:
+
+| | Rodada 2 | Rodada 3 |
+|---|---|---|
+| 2 jogadores com modelo visíveis | 142,1 ms | 142,0 ms |
+| os mesmos 2, modelos desligados | 152,8 ms | 137,1 ms |
+| só o próprio modelo (o outro atrás da câmera) | 137,8 ms | 138,8 ms |
+| o mesmo, modelos desligados | 136,4 ms | 135,7 ms |
+
+A diferença entre modelo e vanilla fica dentro do ruído: com o modpack inteiro, o resto do quadro domina e os modelos
+CC0 pequenos (282 a 936 quads) não aparecem na conta. Memória: cada cliente com `-Xmx2304M` ocupa uns 4,4 GB
+residentes (a heap viva fica em 1,7 GB depois de um GC completo); o cliente leva de 20 a 30 minutos para chegar ao
+menu nessa máquina.
+
+Achados fora do futura3d:
+
+* Na primeira rodada, com os dois jogadores teleportados 60 blocos acima do chão, A nunca recebeu a entidade de B
+  (B via A, e o JourneyMap de A mostrava B no radar pelos dados do servidor). Nas outras duas rodadas, no chão, os dois
+  se viam desde o início. Parece o rastreador de entidades do servidor (que só manda um jogador a quem já recebeu o
+  chunk dele), não o futura3d: **a checar** em produção se jogadores somem uns para os outros depois de um `/tp`.
+* O Crucible registra o comando com o nó de permissão `com.akashic.futura.server.FuturaCommand` (o nome da classe):
+  para dar o comando a quem não é operador pelo LuckPerms, é esse nó.
+* O JourneyMap mostra os outros jogadores pelo UUID em vez do nome num servidor offline.
+
+**A checar**:
+
+* Lâminas do Kunftig (`KunftigBlades`) e as varas 3D (`KunftigRods`) em modelos: precisam do plugin que manda os
+  dados (o AkashicFishing e o Overkill não estão no servidor); a linha e a boia foram vistas.
+* Shaders do Angelica ligados e uma placa de vídeo de verdade (aqui só llvmpipe sem shaders); o custo de modelos
+  grandes (`wine_fox`) com vários jogadores perto.
+* Modo online, links lentos e muitos jogadores baixando juntos; o clique de mouse no botão do seletor (o teste chamou
+  o mesmo `requestLocal` do botão).
+* A segunda mão do Backhand espelhada (o item usa a transformação da mão direita) e a segunda mão vista pelo outro
+  jogador (no teste foi posta só no cliente que a fotografou).
+
+Testes: 313 (sem mudança: a ponte do Backhand depende do FML carregado).
 
 ## Fases
 
