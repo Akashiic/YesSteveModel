@@ -126,6 +126,7 @@ public final class RenderHarness {
         configSteps();
         viewSteps();
         langSteps();
+        replacementSteps();
         onlySteps();
     }
 
@@ -298,6 +299,149 @@ public final class RenderHarness {
         mc.gameSettings.language = code;
         mc.fontRenderer.setUnicodeFlag(code.startsWith("zh") || code.startsWith("ja") || code.startsWith("ko"));
         report("language " + code);
+    }
+
+    // ---- Item 2: projectile and vehicle replacements. Steps "repl-*" ("only repl" runs just these). ----
+
+    private static final int REPL_ID = -4243;
+    private net.minecraft.entity.Entity replEntity;
+    /** Where the replaced entity is held every tick (x, y of its bounding box bottom, z, yaw, pitch). */
+    private double[] replPlace;
+
+    /**
+     * A second player with a model, and next to him an arrow he shot, his fishing hook, a boat, a minecart on a rail
+     * and a horse he rides, each drawn with his model's replacement and then as vanilla.
+     */
+    private void replacementSteps() {
+        for (boolean vanilla : new boolean[] { false, true }) {
+            String v = vanilla ? "vanilla-" : "";
+            step("repl-" + v + "arrow", () -> replStep(vanilla, "default", () -> {
+                net.minecraft.entity.projectile.EntityArrow arrow = new net.minecraft.entity.projectile.EntityArrow(
+                    Minecraft.getMinecraft().theWorld,
+                    1.5,
+                    5,
+                    3.5);
+                arrow.shootingEntity = fake;
+                return arrow;
+            }, new double[] { 1.5, 5, 3.5, 90, -20 }, false));
+            step("repl-" + v + "hook", () -> replStep(vanilla, "default", () -> {
+                fake.inventory.setInventorySlotContents(fake.inventory.currentItem, new ItemStack(Items.fishing_rod));
+                return new net.minecraft.entity.projectile.EntityFishHook(
+                    Minecraft.getMinecraft().theWorld,
+                    1.5,
+                    4.2,
+                    2.5,
+                    fake);
+            }, new double[] { 1.5, 4.2, 2.5, 0, 0 }, false));
+            step(
+                "repl-" + v + "boat",
+                () -> replStep(
+                    vanilla,
+                    "default",
+                    () -> {
+                        return new net.minecraft.entity.item.EntityBoat(Minecraft.getMinecraft().theWorld, 0.5, 4, 3.5);
+                    },
+                    new double[] { 0.5, 4, 3.5, 0, 0 },
+                    true));
+            step("repl-" + v + "minecart", () -> replStep(vanilla, "default", () -> {
+                MinecraftServer server = MinecraftServer.getServer();
+                if (server != null) {
+                    // an east-west rail: the cart's yaw follows it
+                    server.worldServers[0].setBlock(0, 4, 3, Blocks.rail, 1, 3);
+                }
+                return new net.minecraft.entity.item.EntityMinecartEmpty(
+                    Minecraft.getMinecraft().theWorld,
+                    0.5,
+                    4,
+                    3.5);
+            }, new double[] { 0.5, 4, 3.5, 0, 0 }, true));
+            step("repl-" + v + "horse", () -> replStep(vanilla, "wine_fox/16_tactics", () -> {
+                net.minecraft.entity.passive.EntityHorse horse = new net.minecraft.entity.passive.EntityHorse(
+                    Minecraft.getMinecraft().theWorld);
+                horse.setHorseSaddled(true);
+                return horse;
+            }, new double[] { 0.5, 4, 3.5, 90, 0 }, true));
+        }
+        step("repl-end", () -> {
+            replRemove();
+            removeFake();
+            MinecraftServer server = MinecraftServer.getServer();
+            if (server != null) {
+                server.worldServers[0].setBlockToAir(0, 4, 3);
+            }
+            com.akashic.futura.client.EntityReplacements.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            Minecraft.getMinecraft().gameSettings.hideGUI = false;
+        });
+    }
+
+    private void replStep(boolean vanilla, String builtin,
+        java.util.function.Supplier<net.minecraft.entity.Entity> make, double[] place, boolean ride) {
+        Minecraft mc = Minecraft.getMinecraft();
+        replRemove();
+        removeFake();
+        com.akashic.futura.client.EntityReplacements.INSTANCE.setEnabled(!vanilla);
+        PlayerModels.INSTANCE.setEnabled(true);
+        PlayerModels.INSTANCE.use(builtin);
+        keys(false, false, false, false);
+        holdUse = false;
+        fakeHurt = 0;
+        fakeDying = false;
+        fakeUse = null;
+        mc.gameSettings.hideGUI = true;
+        fake = new EntityOtherPlayerMP(mc.theWorld, new GameProfile(java.util.UUID.randomUUID(), "futura3d"));
+        fake.setPositionAndRotation(0.5, 4 + fake.yOffset, ride ? 3.5 : 3.0, 90, 0);
+        fakeYaw = 90;
+        mc.theWorld.addEntityToWorld(FAKE_ID, fake);
+        replEntity = make.get();
+        replPlace = place;
+        replHold();
+        mc.theWorld.addEntityToWorld(REPL_ID, replEntity);
+        if (ride) {
+            fake.mountEntity(replEntity);
+        }
+        // a quarter view from the south-east, three blocks away
+        lookFrom(3.0, 1.0, 0, 45, 20);
+        report(
+            "repl " + builtin
+                + " "
+                + net.minecraft.entity.EntityList.getEntityString(replEntity)
+                + " replaced="
+                + (!vanilla && ride ? com.akashic.futura.client.EntityReplacements.INSTANCE.replacesVehicle(replEntity)
+                    : !vanilla));
+    }
+
+    /** Holds the replaced entity in place (no motion, fixed rotation), every tick. */
+    private void replHold() {
+        if (replEntity == null || replPlace == null) {
+            return;
+        }
+        net.minecraft.entity.Entity e = replEntity;
+        double y = replPlace[1] + e.yOffset;
+        e.setPosition(replPlace[0], y, replPlace[2]);
+        e.prevPosX = e.lastTickPosX = replPlace[0];
+        e.prevPosY = e.lastTickPosY = y;
+        e.prevPosZ = e.lastTickPosZ = replPlace[2];
+        e.motionX = e.motionY = e.motionZ = 0;
+        e.rotationYaw = e.prevRotationYaw = (float) replPlace[3];
+        e.rotationPitch = e.prevRotationPitch = (float) replPlace[4];
+        if (e instanceof net.minecraft.entity.EntityLivingBase) {
+            net.minecraft.entity.EntityLivingBase living = (net.minecraft.entity.EntityLivingBase) e;
+            living.renderYawOffset = living.prevRenderYawOffset = (float) replPlace[3];
+            living.rotationYawHead = living.prevRotationYawHead = (float) replPlace[3];
+        }
+    }
+
+    private void replRemove() {
+        if (replEntity != null) {
+            if (fake != null && fake.ridingEntity == replEntity) {
+                fake.mountEntity(null);
+            }
+            Minecraft.getMinecraft().theWorld.removeEntityFromWorld(REPL_ID);
+            replEntity = null;
+            replPlace = null;
+        }
     }
 
     // Phase 5a: Bedrock controllers, functions and sounds. Steps "ctrl-*" ("only ctrl" runs just these).
@@ -832,6 +976,7 @@ public final class RenderHarness {
         }
         applyKeys();
         itemTick();
+        replHold();
         if (++ticks >= SETTLE_TICKS) {
             if (names.get(index)
                 .contains("-copies-")) {
