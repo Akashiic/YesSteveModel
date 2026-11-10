@@ -10,10 +10,21 @@ public final class Protocol {
     public static final String CHANNEL = "futura3d:model";
 
     /**
-     * Protocol version, sent in both hellos. Both sides talk only to the same version. The layout of the two hellos
-     * (type byte, then this int) never changes, so any later version can recognise a mismatch.
+     * Protocol version, sent in both hellos. The layout of the two hellos (type byte, then this int) never changes, so
+     * any later version can recognise a mismatch. 2 adds roaming variables and {@code ysm.sync} events
+     * ({@link #S_ROAMING}, {@link #S_SYNC}, {@link #C_ROAMING}, {@link #C_SYNC}) and the emote and roaming state sent
+     * when a player starts tracking another.
+     * <p>
+     * Negotiation: the client says hello with its version; a server that speaks it (or any version from
+     * {@link #MIN_VERSION} up) answers with that version and only sends what it has. A version-1 server answers a
+     * version-2 hello with its own hello alone (version 1, no models), and the client says hello again with 1. Either
+     * side never sends a message type the negotiated version lacks.
      */
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
+    /** The oldest version this side still speaks. */
+    public static final int MIN_VERSION = 1;
+    /** The first version with roaming variables and {@code ysm.sync}. */
+    public static final int ROAMING_VERSION = 2;
 
     /** Custom payloads in 1.7.10 cap at 32767 bytes (a client's {@code C17PacketCustomPayload} throws above it). */
     public static final int MAX_PAYLOAD = 32767;
@@ -55,6 +66,14 @@ public final class Protocol {
     public static final int MAX_REQUEST = 256;
     /** Player states in one message. */
     public static final int MAX_STATES = 96;
+    /** Roaming variables in one message (a change of more is split; a full state over several, the first resetting). */
+    public static final int MAX_ROAMING_PER_MESSAGE = 16;
+    /** Roaming variables kept per player (upstream {@code ProtocolLimits.MAX_ROAMING_VARIABLES}). */
+    public static final int MAX_ROAMING_VARIABLES = 64;
+    /** UTF-8 bytes of a roaming variable name, without {@code roaming.} (upstream's limit). */
+    public static final int MAX_ROAMING_NAME_BYTES = 32;
+    /** Arguments of one {@code ysm.sync} event (upstream {@code MolangEventCatalog.SYNC_MAX_ARGUMENTS}). */
+    public static final int MAX_SYNC_ARGS = 16;
 
     // ---- Message types ----
 
@@ -66,12 +85,20 @@ public final class Protocol {
     public static final int S_UNAVAILABLE = 5;
     public static final int S_STATE = 6;
     public static final int S_EMOTE = 7;
+    /** Version 2: a player's roaming variables changed (or all of them, to someone who starts seeing him). */
+    public static final int S_ROAMING = 8;
+    /** Version 2: a player's model ran {@code ysm.sync(...)}. */
+    public static final int S_SYNC = 9;
 
     // Client to server
     public static final int C_HELLO = 64;
     public static final int C_REQUEST = 65;
     public static final int C_SELECT = 66;
     public static final int C_EMOTE = 67;
+    /** Version 2: the local player's roaming variables changed. */
+    public static final int C_ROAMING = 68;
+    /** Version 2: the local player's model ran {@code ysm.sync(...)}. */
+    public static final int C_SYNC = 69;
 
     /** Prefix of built-in model keys (the client has them; never transferred). */
     public static final String BUILTIN = "builtin:";
@@ -109,6 +136,40 @@ public final class Protocol {
             }
         }
         return true;
+    }
+
+    /** Whether the version has roaming variables and {@code ysm.sync}. */
+    public static boolean hasRoaming(int version) {
+        return version >= ROAMING_VERSION;
+    }
+
+    /** Whether this side speaks the version. */
+    public static boolean speaks(int version) {
+        return version >= MIN_VERSION && version <= VERSION;
+    }
+
+    /**
+     * A roaming variable name as Molang stores it, without {@code roaming.}: 1 to {@link #MAX_ROAMING_NAME_BYTES}
+     * lower-case letters, digits and {@code _}, in parts joined by single dots ({@code v.roaming.a.b} is
+     * {@code "a.b"}).
+     */
+    public static boolean validRoamingName(String name) {
+        if (name == null || name.isEmpty() || name.length() > MAX_ROAMING_NAME_BYTES) {
+            return false;
+        }
+        char previous = '.';
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c == '.') {
+                if (previous == '.') {
+                    return false;
+                }
+            } else if (!(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_')) {
+                return false;
+            }
+            previous = c;
+        }
+        return previous != '.';
     }
 
     /** Text sent for display or as a name: no control characters. */

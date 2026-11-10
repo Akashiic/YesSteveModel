@@ -385,6 +385,11 @@ public final class PlayerMolangContext extends AnimationContext {
                 return MolangValue.of(name.equals(a.selectedControl()));
             case "playing_extra_animation":
                 return MolangValue.of(a.playingExtra && a.capState() != PlaybackState.IDLE);
+            case "slashblade_animation": {
+                // upstream SlashBladeBuiltinComponent: the combo animation, or "" (phase 5b, external states)
+                String combo = SlashBladeStates.holds(a.inputs) ? SlashBladeStates.combo(a.inputs) : null;
+                return MolangValue.of(combo == null ? "" : combo);
+            }
             case "state_bypass":
                 return num(5);
             case "state_continue":

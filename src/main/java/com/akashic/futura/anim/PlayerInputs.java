@@ -298,6 +298,19 @@ public interface PlayerInputs {
         return false;
     }
 
+    /**
+     * A state another mod set on the player ({@code FuturaModels.setExternalState}, see {@link ExternalStates}), e.g.
+     * {@link SlashBladeStates#COMBO}; null when unset.
+     */
+    default String externalState(String key) {
+        return null;
+    }
+
+    /** Changes whenever {@link #externalState} of the key changes (0 before the first change). */
+    default int externalGeneration(String key) {
+        return 0;
+    }
+
     /** What a vehicle is, for the legacy fallbacks. */
     enum VehicleKind {
         NONE,

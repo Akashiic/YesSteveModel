@@ -2,7 +2,9 @@ package com.akashic.futura.net;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** A protocol message. The wire layout of each is in {@link MessageCodec}. */
@@ -163,6 +165,51 @@ public abstract class Message {
         }
     }
 
+    /**
+     * Version 2: a player's roaming variables ({@code v.roaming.*}). {@code reset}: forget his other variables first
+     * (a full state, sent to someone who starts seeing him; a full state of more than
+     * {@link Protocol#MAX_ROAMING_PER_MESSAGE} goes in several messages, only the first resetting).
+     */
+    public static final class Roaming extends Message {
+
+        public final UUID player;
+        public final boolean reset;
+        /** Name without {@code roaming.} to a finite value, in the order sent. */
+        public final Map<String, Float> values;
+
+        public Roaming(UUID player, boolean reset, Map<String, Float> values) {
+            this.player = player;
+            this.reset = reset;
+            this.values = copy(values);
+        }
+
+        @Override
+        public int type() {
+            return Protocol.S_ROAMING;
+        }
+    }
+
+    /** Version 2: a player's model ran {@code ysm.sync(args)}; the receiver runs the model's {@code sync} handlers. */
+    public static final class Sync extends Message {
+
+        public final UUID player;
+        public final float[] args;
+
+        public Sync(UUID player, float[] args) {
+            this.player = player;
+            this.args = args.clone();
+        }
+
+        @Override
+        public int type() {
+            return Protocol.S_SYNC;
+        }
+    }
+
+    static Map<String, Float> copy(Map<String, Float> values) {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
     // ---- Client to server ----
 
     /** The client runs the mod and speaks this protocol: the server answers with the catalog and the states. */
@@ -235,6 +282,38 @@ public abstract class Message {
         @Override
         public int type() {
             return Protocol.C_EMOTE;
+        }
+    }
+
+    /** Version 2: the local player's roaming variables changed ({@code reset}: forget the others first). */
+    public static final class RoamingUpdate extends Message {
+
+        public final boolean reset;
+        public final Map<String, Float> values;
+
+        public RoamingUpdate(boolean reset, Map<String, Float> values) {
+            this.reset = reset;
+            this.values = copy(values);
+        }
+
+        @Override
+        public int type() {
+            return Protocol.C_ROAMING;
+        }
+    }
+
+    /** Version 2: the local player's model ran {@code ysm.sync(args)}. */
+    public static final class SyncRequest extends Message {
+
+        public final float[] args;
+
+        public SyncRequest(float[] args) {
+            this.args = args.clone();
+        }
+
+        @Override
+        public int type() {
+            return Protocol.C_SYNC;
         }
     }
 }

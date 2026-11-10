@@ -34,6 +34,7 @@ import com.akashic.futura.anim.ItemConditions;
 import com.akashic.futura.anim.ItemInfo;
 import com.akashic.futura.anim.PlayerInputs;
 import com.akashic.futura.anim.PlayerSnapshot;
+import com.akashic.futura.anim.SlashBladeStates;
 
 /** Fills a {@link PlayerSnapshot} from a 1.7.10 player, once per frame (render thread). */
 final class PlayerInputsAdapter {
@@ -88,6 +89,12 @@ final class PlayerInputsAdapter {
         s.distanceWalkedOnStepModified = p.distanceWalkedOnStepModified;
 
         s.mainhand = item(p.getHeldItem());
+        s.external = PlayerModels.INSTANCE.externalStates()
+            .of(p.getUniqueID());
+        if (s.external != null && s.external.get(SlashBladeStates.HELD) != null
+            && !SlashBladeStates.CLASSIFY.equals(s.mainhand.classify)) {
+            s.mainhand = asSlashBlade(s.mainhand); // a mod says it is a blade: hold_mainhand:slashblade...
+        }
         s.armor.put(ItemConditions.Slot.FEET, item(p.getCurrentArmor(0)));
         s.armor.put(ItemConditions.Slot.LEGS, item(p.getCurrentArmor(1)));
         s.armor.put(ItemConditions.Slot.CHEST, item(p.getCurrentArmor(2)));
@@ -127,6 +134,27 @@ final class PlayerInputsAdapter {
         // GuiInventory draws the player with the view yaw forced to 180.
         s.renderingInInventory = RenderManager.instance.playerViewY == 180f && mc.currentScreen != null;
         s.distanceFromCamera = mc.renderViewEntity == null ? 0 : p.getDistanceToEntity(mc.renderViewEntity);
+    }
+
+    /** The same item with the {@code slashblade} class, cached per item info. */
+    private static final Map<ItemInfo, ItemInfo> BLADES = new java.util.IdentityHashMap<>();
+
+    static ItemInfo asSlashBlade(ItemInfo base) {
+        ItemInfo blade = BLADES.get(base);
+        if (blade == null) {
+            blade = new ItemInfo(
+                base.id,
+                base.tags,
+                SlashBladeStates.CLASSIFY,
+                base.useAction,
+                base.maxUseDuration,
+                base.stackHash);
+            if (BLADES.size() > 256) {
+                BLADES.clear();
+            }
+            BLADES.put(base, blade);
+        }
+        return blade;
     }
 
     static ItemInfo item(ItemStack stack) {

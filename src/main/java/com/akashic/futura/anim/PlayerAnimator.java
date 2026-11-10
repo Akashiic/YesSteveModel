@@ -85,6 +85,9 @@ public final class PlayerAnimator {
     ItemInfo heldOffhand = ItemInfo.EMPTY;
     String selectedControl;
 
+    // SlashBlade combo (SlashBladeStates): the generation of the combo state last started
+    int comboGeneration;
+
     // extra animation (upstream CustomPlayerEntity)
     boolean playingExtra;
     boolean extraDirty;
@@ -328,6 +331,29 @@ public final class PlayerAnimator {
     /** true while an extra animation plays (it ends by itself when a play-once clip finishes). */
     public boolean isPlayingExtra() {
         return playingExtra;
+    }
+
+    /**
+     * The clip a coded controller plays now ({@code player.main}, {@code player.swing}...), or null when it plays
+     * nothing (idle, or not a coded controller).
+     */
+    public String playing(String controller) {
+        for (AnimationController c : controllers) {
+            if (!c.name()
+                .equals(controller)) {
+                continue;
+            }
+            // Coded controllers sit inside a HybridController (phase 5a): only the coded side has a clip to report.
+            if (c instanceof HybridController) {
+                c = ((HybridController) c).active();
+            }
+            if (c instanceof CodedController) {
+                AnimationPlayer p = ((CodedController) c).player();
+                AnimationClip clip = p.state() == PlaybackState.IDLE ? null : p.current();
+                return clip == null ? null : clip.name;
+            }
+        }
+        return null;
     }
 
     /** The player's {@code v.*} variables. */

@@ -47,6 +47,8 @@ public final class PlayerModels {
 
     private final Map<AbstractClientPlayer, Animated> animators = new WeakHashMap<>();
     private final PlayerSnapshot snapshot = new PlayerSnapshot();
+    /** States other mods set on players (FuturaModels.setExternalState). */
+    private final com.akashic.futura.anim.ExternalStates external = new com.akashic.futura.anim.ExternalStates();
     private boolean enabled = true;
     /** Development: every player drawn with this model, whatever is selected. */
     private String forced;
@@ -186,6 +188,11 @@ public final class PlayerModels {
             pt,
             snapshot.renderingInInventory);
         return true;
+    }
+
+    /** States other mods set on players ({@code FuturaModels.setExternalState}). */
+    public com.akashic.futura.anim.ExternalStates externalStates() {
+        return external;
     }
 
     /** The animator of a player for the model he is drawn with now, created on first use. */

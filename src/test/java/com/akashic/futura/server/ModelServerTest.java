@@ -53,6 +53,9 @@ class ModelServerTest {
         List<CatalogEntry> catalog = new ArrayList<>();
         int resets;
         int received;
+        final Map<UUID, Map<String, Float>> roaming = new HashMap<>();
+        final List<String> roamingLog = new ArrayList<>();
+        final List<String> syncs = new ArrayList<>();
 
         Client(UUID id) {
             this.id = id;
@@ -107,6 +110,28 @@ class ModelServerTest {
                     + name);
         }
 
+        @Override
+        public void roaming(UUID p, boolean reset, Map<String, Float> values) {
+            Map<String, Float> mine = roaming.computeIfAbsent(p, k -> new LinkedHashMap<>());
+            if (reset) {
+                mine.clear();
+            }
+            mine.putAll(values);
+            roamingLog.add(
+                p.toString()
+                    .substring(0, 4) + (reset ? ":reset" : "")
+                    + ":"
+                    + values);
+        }
+
+        @Override
+        public void sync(UUID p, float[] args) {
+            syncs.add(
+                p.toString()
+                    .substring(0, 4) + ":"
+                    + java.util.Arrays.toString(args));
+        }
+
         CatalogEntry entry(String name) {
             for (CatalogEntry e : catalog) {
                 if (e.name.toLowerCase()
@@ -128,6 +153,8 @@ class ModelServerTest {
     private final UUID b = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000002");
     private final UUID vanilla = UUID.fromString("cccccccc-0000-0000-0000-000000000003");
     private int vanillaMessages;
+    /** What was sent to players without a fake client (vanilla, or a raw old client). */
+    private final List<Message> toNobody = new ArrayList<>();
 
     private final ModelServer.Network network = new ModelServer.Network() {
 
@@ -138,6 +165,7 @@ class ModelServerTest {
             Client c = clients.get(player);
             if (c == null) {
                 vanillaMessages++;
+                toNobody.add(m);
                 return;
             }
             toClients.add(() -> {
@@ -454,6 +482,216 @@ class ModelServerTest {
         late.session.start();
         deliver();
         assertEquals(0, late.received);
+    }
+
+    private static Map<String, Float> vars(Object... kv) {
+        Map<String, Float> m = new LinkedHashMap<>();
+        for (int i = 0; i < kv.length; i += 2) {
+            m.put((String) kv[i], ((Number) kv[i + 1]).floatValue());
+        }
+        return m;
+    }
+
+    @Test
+    void roamingIsRelayedToTrackersAndKept() {
+        Client ca = connect(a);
+        Client cb = connect(b);
+        trackers.put(a, new HashSet<>(Collections.singletonList(b)));
+        ca.send(new Message.RoamingUpdate(true, vars("back", 1, "eye", 2)));
+        deliver();
+        assertEquals(vars("back", 1, "eye", 2), cb.roaming.get(a));
+        assertNull(ca.roaming.get(a), "not echoed to the sender");
+        ca.send(new Message.RoamingUpdate(false, vars("eye", 3)));
+        deliver();
+        assertEquals(vars("back", 1, "eye", 3), cb.roaming.get(a));
+        assertEquals(vars("back", 1, "eye", 3), server.roamingOf(a));
+        // a reset forgets the others
+        ca.send(new Message.RoamingUpdate(true, vars("size", 0.5)));
+        deliver();
+        assertEquals(vars("size", 0.5), cb.roaming.get(a));
+        assertEquals(vars("size", 0.5), server.roamingOf(a));
+        // a player nobody tracks: kept, sent to nobody
+        int before = cb.roamingLog.size();
+        cb.send(new Message.RoamingUpdate(false, vars("x", 1)));
+        deliver();
+        assertEquals(vars("x", 1), server.roamingOf(b));
+        assertEquals(before, cb.roamingLog.size());
+        assertTrue(ca.roamingLog.isEmpty());
+    }
+
+    @Test
+    void roamingLimitsAndRate() {
+        Client ca = connect(a);
+        Client cb = connect(b);
+        trackers.put(a, new HashSet<>(Collections.singletonList(b)));
+        // at most MAX_ROAMING_VARIABLES kept: 4 messages of 16, then one more name is dropped
+        for (int m = 0; m < 4; m++) {
+            Map<String, Float> part = new LinkedHashMap<>();
+            for (int i = 0; i < Protocol.MAX_ROAMING_PER_MESSAGE; i++) {
+                part.put("v" + (m * 16 + i), (float) i);
+            }
+            ca.send(new Message.RoamingUpdate(false, part));
+        }
+        ca.send(new Message.RoamingUpdate(false, vars("one_more", 1, "v0", 9)));
+        deliver();
+        assertEquals(
+            Protocol.MAX_ROAMING_VARIABLES,
+            server.roamingOf(a)
+                .size());
+        assertFalse(
+            server.roamingOf(a)
+                .containsKey("one_more"));
+        assertEquals(
+            9f,
+            server.roamingOf(a)
+                .get("v0"));
+        assertEquals(
+            Protocol.MAX_ROAMING_VARIABLES,
+            cb.roaming.get(a)
+                .size());
+        // the rate limit: a burst of 20, then 10 a second
+        Client cc = connect(vanilla);
+        trackers.put(vanilla, new HashSet<>(Collections.singletonList(b)));
+        int before = cb.roamingLog.size();
+        for (int i = 0; i < 40; i++) {
+            cc.send(new Message.RoamingUpdate(false, vars("n", i)));
+        }
+        deliver();
+        assertEquals(20, cb.roamingLog.size() - before);
+        assertEquals(
+            19f,
+            server.roamingOf(vanilla)
+                .get("n"));
+        for (int t = 0; t < 20; t++) {
+            server.tick(); // one second: 10 more tokens
+        }
+        for (int i = 0; i < 40; i++) {
+            cc.send(new Message.RoamingUpdate(false, vars("n", 100 + i)));
+        }
+        deliver();
+        assertEquals(30, cb.roamingLog.size() - before);
+    }
+
+    @Test
+    void roamingBelongsToTheModel() throws ModelServer.CommandError {
+        Client ca = connect(a);
+        connect(b);
+        ca.send(new Message.RoamingUpdate(true, vars("back", 1)));
+        deliver();
+        assertEquals(vars("back", 1), server.roamingOf(a));
+        server.set(a, "builtin:misc/3_default_boy", null);
+        deliver();
+        assertTrue(
+            server.roamingOf(a)
+                .isEmpty(),
+            "a new model starts without the old one's variables");
+        ca.send(new Message.RoamingUpdate(false, vars("back", 2)));
+        deliver();
+        server.set(a, "builtin:misc/3_default_boy", null); // the same model again: kept
+        deliver();
+        assertEquals(vars("back", 2), server.roamingOf(a));
+    }
+
+    @Test
+    void syncGoesToTrackersAndBackToTheSender() {
+        Client ca = connect(a);
+        Client cb = connect(b);
+        trackers.put(a, new HashSet<>(Collections.singletonList(b)));
+        ca.send(new Message.SyncRequest(new float[] { 1, 2.5f }));
+        deliver();
+        assertEquals(Collections.singletonList("aaaa:[1.0, 2.5]"), cb.syncs);
+        assertEquals(Collections.singletonList("aaaa:[1.0, 2.5]"), ca.syncs);
+        for (int i = 0; i < 30; i++) {
+            ca.send(new Message.SyncRequest(new float[] { i }));
+        }
+        deliver();
+        assertEquals(1 + 19, cb.syncs.size(), "20 tokens at first");
+    }
+
+    @Test
+    void startTrackingSendsTheEmoteAndTheRoaming() {
+        Client ca = connect(a);
+        Client cb = connect(b);
+        // a plays an emote and sets 20 variables while nobody sees him
+        ca.send(new Message.EmoteRequest("extra0"));
+        Map<String, Float> part = new LinkedHashMap<>();
+        for (int i = 0; i < Protocol.MAX_ROAMING_PER_MESSAGE; i++) {
+            part.put("v" + i, (float) i);
+        }
+        ca.send(new Message.RoamingUpdate(true, part));
+        ca.send(new Message.RoamingUpdate(false, vars("w", 1, "x", 2, "y", 3, "z", 4)));
+        deliver();
+        assertTrue(cb.emotes.isEmpty());
+        assertEquals("extra0", server.emoteOf(a));
+        // b comes close: the emote, then the variables in two messages (the first resetting)
+        cb.roaming.put(a, vars("stale", 1));
+        server.startTracking(b, a);
+        deliver();
+        assertEquals(Collections.singletonList("aaaa:extra0"), cb.emotes);
+        assertEquals(
+            20,
+            cb.roaming.get(a)
+                .size());
+        assertFalse(
+            cb.roaming.get(a)
+                .containsKey("stale"));
+        assertEquals(2, cb.roamingLog.size());
+        assertTrue(
+            cb.roamingLog.get(0)
+                .startsWith("aaaa:reset:"));
+        // the emote stopped (or ended by itself: the client says stop): nothing to send next time
+        ca.send(new Message.EmoteRequest(null));
+        deliver();
+        assertNull(server.emoteOf(a));
+        server.startTracking(b, a);
+        deliver();
+        assertEquals(1, cb.emotes.size());
+        assertEquals(4, cb.roamingLog.size(), "the variables again: two messages for 20");
+        // nothing for himself, nor for a client without the mod
+        server.join(vanilla);
+        deliver();
+        int received = ca.received;
+        server.startTracking(a, a);
+        server.startTracking(vanilla, a);
+        deliver();
+        assertEquals(received, ca.received);
+    }
+
+    @Test
+    void versionOneClientsGetNoRoaming() {
+        Client cb = connect(b);
+        // an old client (no fake session: what it is sent is recorded): version 1 hello
+        server.join(a);
+        trackers.put(b, new HashSet<>(Collections.singletonList(a)));
+        server.received(a, new Message.ClientHello(1));
+        assertTrue(server.hasMod(a));
+        Message hello = toNobody.get(0);
+        assertEquals(1, ((Message.ServerHello) hello).version, "answered in its version");
+        toNobody.clear();
+        cb.send(new Message.RoamingUpdate(true, vars("back", 1)));
+        cb.send(new Message.SyncRequest(new float[] { 1 }));
+        cb.send(new Message.EmoteRequest("extra0"));
+        deliver();
+        assertEquals(1, toNobody.size(), "only the emote reached the version-1 client");
+        assertEquals(
+            Protocol.S_EMOTE,
+            toNobody.get(0)
+                .type());
+        // its own roaming and sync messages are ignored
+        server.received(a, new Message.RoamingUpdate(true, vars("x", 1)));
+        server.received(a, new Message.SyncRequest(new float[] { 1 }));
+        assertTrue(
+            server.roamingOf(a)
+                .isEmpty());
+        assertEquals(1, cb.syncs.size(), "only b's own, echoed");
+        // start tracking: the emote only
+        toNobody.clear();
+        server.startTracking(a, b);
+        assertEquals(1, toNobody.size());
+        assertEquals(
+            Protocol.S_EMOTE,
+            toNobody.get(0)
+                .type());
     }
 
     private static <T> T assertDoesNotThrow(ThrowingSupplier<T> s) {

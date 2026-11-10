@@ -47,4 +47,12 @@ public final class CachedModelSource implements ModelSource {
         }
         return new ByteArrayInputStream(data);
     }
+
+    /** The catalog's file list: where the model's {@code functions/} and {@code sounds/} are found. */
+    @Override
+    public java.util.List<String> list() {
+        java.util.List<String> paths = new java.util.ArrayList<>(files.keySet());
+        java.util.Collections.sort(paths);
+        return paths;
+    }
 }
