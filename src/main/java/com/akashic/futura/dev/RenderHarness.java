@@ -119,6 +119,8 @@ public final class RenderHarness {
         // Models of the level the port targets (1554 cubes) and a stress case (4533 cubes).
         copySteps("wedding", "wine_fox/18_wedding");
         copySteps("sta", "wine_fox/08_sta");
+        translucentSteps("wedding", "wine_fox/18_wedding");
+        translucentSteps("little", "wine_fox/12_little");
         itemSteps();
         pickerSteps();
         serverSteps();
@@ -576,6 +578,42 @@ public final class RenderHarness {
                 view(1, 0);
             });
         }
+    }
+
+    // Stage 6: translucent faces sorted back to front ("only transl" runs just these). Each view twice: sorted, and
+    // in the fixed emission order for comparison. Zoomed in (FOV 30) without the GUI.
+    private void translucentSteps(String label, String builtin) {
+        String[] views = { "front", "back", "side", "above" };
+        int[] modes = { 2, 1, 2, 1 };
+        float[] yaws = { 0, 0, 70, 150 };
+        for (int i = 0; i < views.length; i++) {
+            int v = i;
+            for (boolean sorted : new boolean[] { true, false }) {
+                step("transl-" + label + "-" + views[v] + (sorted ? "" : "-unsorted"), () -> {
+                    Minecraft mc = Minecraft.getMinecraft();
+                    PlayerModels.INSTANCE.setEnabled(true);
+                    PlayerModels.INSTANCE.use(builtin);
+                    copies = 0;
+                    keys(false, false, false, false);
+                    mc.gameSettings.hideGUI = true;
+                    mc.gameSettings.fovSetting = 30;
+                    com.akashic.futura.client.render.GeometryRenderer.sortTranslucent = sorted;
+                    view(modes[v], yaws[v]);
+                    if (views[v].equals("above")) {
+                        EntityPlayerMP p = serverPlayer(mc);
+                        if (p != null) {
+                            p.playerNetServerHandler.setPlayerLocation(0.5, 4, 0.5, yaws[v], 50);
+                        }
+                    }
+                });
+            }
+        }
+        step("transl-" + label + "-end", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            com.akashic.futura.client.render.GeometryRenderer.sortTranslucent = true;
+            mc.gameSettings.fovSetting = 70;
+            mc.gameSettings.hideGUI = false;
+        });
     }
 
     private void step(String name, Runnable action) {
