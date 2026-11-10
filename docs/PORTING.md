@@ -986,7 +986,18 @@ propósito, testes, resultados e a lista **A checar**). Testes: 534 (eram 337 no
 Mudanças que tocam o que já existia:
 
 * **Protocolo 3**: o bit 4 (`memoryOnly`) nas flags do `S_MODEL`; modelos `memoryOnly` não são oferecidos a clientes 1
-  e 2, nem os arquivos só deles. Novo `S_PROJECTILE_OWNER` (10: id da entidade, UUID de quem jogou), só a clientes 3. O cliente guarda esses arquivos na memória da sessão (`VolatileFileCache`), nunca no
+  e 2, nem os arquivos só deles. Novo `S_PROJECTILE_OWNER` (10: id da entidade, UUID de quem jogou), só a clientes 3.
+* **Atrás de proxy (Velocity/BungeeCord)**: achado no teste da rede de produção (lobby Paper → `forbidden-1`
+  Crucible). A troca de servidor do proxy refaz o handshake do FML na mesma conexão e o `NetHandlerPlayClient` continua
+  o mesmo; a sessão do cliente só recomeçava com um `NetHandlerPlayClient` novo, então o hello ia para o lobby (que não
+  responde) e nunca mais era repetido: o Crucible nunca soube que o cliente tem o mod e não mandava catálogo nem
+  modelos (o `/futura3d set` mudava só o estado gravado). Agora o cliente recomeça a sessão a cada handshake do FML
+  completo (`ClientConnectedToServerEvent`, inclusive o reset do proxy) e repete o hello a cada 2 s por 20 s enquanto
+  ninguém responde (um hello que chega antes do `PlayerLoggedInEvent` do servidor novo se perdia); o servidor responde
+  de novo a um hello repetido (catálogo e estados), com limite de taxa. Logs: `Handshake from <uuid>: protocol=...,
+  sending N models (M memory only)` no servidor, `Server catalog: N models (M memory only)` e `Server switch` no
+  cliente; o `/futura3d set` avisa quando o cliente do jogador ainda não fez o handshake. **A checar**: na rede de
+  produção, de novo. O cliente guarda esses arquivos na memória da sessão (`VolatileFileCache`), nunca no
   `DiskFileCache`.
 * `GeoBaker` lê `poly_mesh` Bedrock (o importador legado escreve um por osso, com `futura3d_cube_faces`); pastas e zips
   no layout 1.x passam a ser lidos no servidor.
