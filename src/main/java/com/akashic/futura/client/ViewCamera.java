@@ -88,6 +88,7 @@ public final class ViewCamera {
             || mc.gameSettings.thirdPersonView != 0
             || player.ridingEntity != null
             || !player.isEntityAlive()
+            || ElytraBridge.flying(player) // gliding the body lies along the look: the head is no eye height
             || !ClientOptions.INSTANCE.viewLocatorCamera()) {
             return Float.NaN;
         }

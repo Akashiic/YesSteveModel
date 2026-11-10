@@ -64,6 +64,9 @@ class FishingStatesTest {
         assertEquals(Phase.DRAW, FishingStates.fromState("sacar"));
         assertEquals(Phase.FIGHT, FishingStates.fromState("fishing:fight"));
         assertEquals(Phase.CATCH, FishingStates.fromState("catch"));
+        assertEquals(Phase.CATCH, FishingStates.fromState("captura_rara"));
+        assertEquals(Phase.FIGHT, FishingStates.fromState("briga_erro"));
+        assertEquals(Phase.ESCAPE, FishingStates.fromState("fuga"));
         assertNull(FishingStates.fromState("aura"));
         assertNull(FishingStates.fromState(""));
         assertNull(FishingStates.fromState(null));
@@ -183,11 +186,27 @@ class FishingStatesTest {
         assertEquals(Phase.ESCAPE, t.update(s, ++now, library));
         now += library.get("fishing:escape").length + 2;
         assertEquals(Phase.WAIT, t.update(s, now, library), "the line is still out");
-        // a plugin gives up the fight (parada): back to waiting
+        // back to parada in the middle of the fight with the line out: the fish got away (AkashicFishing tells a rod
+        // without a fuga state parada)
         states.set(PLAYER, FishingStates.STATE, "mordida");
         t.update(s, ++now, library);
         states.set(PLAYER, FishingStates.STATE, "parada");
-        assertEquals(Phase.WAIT, t.update(s, ++now, library));
+        assertEquals(Phase.ESCAPE, t.update(s, ++now, library));
+        now += library.get("fishing:escape").length + 2;
+        assertEquals(Phase.WAIT, t.update(s, now, library));
+        // a miss reaction (briga_erro) and back: the fight loop is not restarted
+        states.set(PLAYER, FishingStates.STATE, "briga");
+        assertEquals(Phase.FIGHT, t.update(s, ++now, library));
+        int fight = t.serial();
+        states.set(PLAYER, FishingStates.STATE, "briga_erro");
+        assertEquals(Phase.FIGHT, t.update(s, ++now, library));
+        states.set(PLAYER, FishingStates.STATE, "briga");
+        assertEquals(Phase.FIGHT, t.update(s, ++now, library));
+        assertEquals(fight, t.serial(), "the same fight");
+        states.set(PLAYER, FishingStates.STATE, "captura_mitica");
+        assertEquals(Phase.CATCH, t.update(s, ++now, library));
+        now += library.get("fishing:catch").length + 2;
+        assertEquals(Phase.WAIT, t.update(s, now, library));
         // a right click with the line out: the retrieve starts with the click; the line coming back is the same
         swing(s);
         assertEquals(Phase.RETRIEVE, t.update(s, ++now, library));

@@ -23,6 +23,9 @@ public final class PlayerSnapshot implements PlayerInputs {
     public boolean deadOrDying, sleeping, onGround = true, inWater, inWaterOrRain, onLadder, sneaking, sprinting,
         flying, onFire;
     public boolean swimming, crawling, fallFlying, autoSpinAttack;
+    public boolean hasElytra;
+    /** Wing angles in degrees (x, y, z). */
+    public final float[] elytraRotation = new float[3];
     public int hurtTime;
     public float health = 20, maxHealth = 20;
     public int foodLevel = 20, armorValue, experienceLevel;
@@ -257,6 +260,16 @@ public final class PlayerSnapshot implements PlayerInputs {
     @Override
     public boolean isFallFlying() {
         return fallFlying;
+    }
+
+    @Override
+    public boolean hasElytra() {
+        return hasElytra;
+    }
+
+    @Override
+    public float elytraRotation(int axis) {
+        return elytraRotation[axis];
     }
 
     @Override

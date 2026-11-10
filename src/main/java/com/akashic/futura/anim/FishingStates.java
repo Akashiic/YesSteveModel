@@ -121,12 +121,15 @@ public final class FishingStates {
             case "bite":
                 return Phase.BITE;
             case "briga":
+            case "briga_erro": // AkashicFishing's miss reaction: the fight goes on (the tension jolts the pose)
             case "fight":
                 return Phase.FIGHT;
             case "recolher":
             case "reel":
                 return Phase.REEL;
             case "captura":
+            case "captura_rara": // AkashicFishing's bigger catch parties (épico, lendário and mítico)
+            case "captura_mitica":
             case "catch":
                 return Phase.CATCH;
             case "escapou":
@@ -287,8 +290,12 @@ public final class FishingStates {
                     cast(now);
                 } else if (asked == Phase.READY) {
                     if (phase.fighting()) {
-                        begin(line ? Phase.WAIT : Phase.READY, now); // given up, or the line unlocked
+                        // back to rest in the middle of the fight with the line still out: the fish got away (a rod
+                        // without a fuga state is told parada); with the line gone, the fight just ended
+                        begin(line ? Phase.ESCAPE : Phase.READY, now);
                     }
+                } else if (asked == Phase.FIGHT && phase == Phase.FIGHT) {
+                    // a miss reaction and back (briga_erro, briga): the loop goes on
                 } else if (asked != null && asked != Phase.DRAW) {
                     begin(asked, now);
                 }

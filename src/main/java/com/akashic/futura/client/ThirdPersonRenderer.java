@@ -48,6 +48,11 @@ public final class ThirdPersonRenderer {
     static final String RIGHT_HAND = "RightHandLocator";
     static final String LEFT_HAND = "LeftHandLocator";
     static final String HEAD = "Head";
+    static final String ELYTRA = "ElytraLocator";
+    /** Models without an {@code ElytraLocator}: the wings on this bone, at the default model's locator. */
+    static final String ELYTRA_FALLBACK = "UpBody";
+    /** The default model's {@code ElytraLocator} from its {@code UpBody} pivot, in blocks (0, 11, 2 pixels). */
+    static final float[] ELYTRA_FALLBACK_OFFSET = { 0, 11f / 16, 2f / 16 };
 
     /** What one player looked like in its last draw. */
     private static final class Frame {
@@ -175,7 +180,9 @@ public final class ThirdPersonRenderer {
     /**
      * Model space to camera-relative render space: the feet at the render position turned to the body yaw, or, in a
      * bed, vanilla's {@code RenderPlayer.renderLivingAt} offset and {@code rotateCorpse} turn (upstream keeps the
-     * vanilla bed turn and lets the {@code sleep} animation pose the body); then the model's scale.
+     * vanilla bed turn and lets the {@code sleep} animation pose the body); then the model's scale. Gliding has no turn
+     * here: as upstream (whose {@code setupRotations} is the living entity's, without the player's glide tilt), the
+     * model's {@code elytra_fly} lays the body down itself.
      */
     static void placement(EntityPlayer player, double x, double y, double z, float bodyYaw, float widthScale,
         float heightScale, float[] out) {
@@ -204,6 +211,42 @@ public final class ThirdPersonRenderer {
         GL11.glMultMatrix(buffer);
     }
 
+    /**
+     * Et Futurum Requiem's wings at the {@code ElytraLocator} group, as upstream's {@code CustomPlayerElytraLayer}
+     * (a hidden locator hides them); a model without the locator gets them on its {@code UpBody}, where the default
+     * model has it.
+     */
+    private void wings(AbstractClientPlayer player, PoseMatrices pose) {
+        if (pose.group(ELYTRA).length > 0) {
+            for (int bone : pose.visibleGroup(ELYTRA)) {
+                pose.locator(bone, locator, 0);
+                wingsAt(player);
+            }
+            return;
+        }
+        int[] body = pose.visibleGroup(ELYTRA_FALLBACK);
+        if (body.length > 0) {
+            pose.locator(body[0], locator, 0);
+            Mat4.translate(locator, 0, ELYTRA_FALLBACK_OFFSET[0], ELYTRA_FALLBACK_OFFSET[1], ELYTRA_FALLBACK_OFFSET[2]);
+            wingsAt(player);
+        }
+    }
+
+    private void wingsAt(AbstractClientPlayer player) {
+        GL11.glPushMatrix();
+        try {
+            multiply(locator, 0);
+            // the locator (blocks, y up, the front toward -z, at the back) to the biped body frame EFR's layer draws
+            // in (y down and x mirrored, as RendererLivingEntity's scale(-1, -1, 1)); EFR moves the wings 2 pixels back
+            // from the neck to the back, where the locator already is
+            GL11.glRotatef(180, 0, 0, 1);
+            GL11.glTranslatef(0, 0, -0.125f);
+            ElytraBridge.drawWings(player, partialTicks);
+        } finally {
+            GL11.glPopMatrix();
+        }
+    }
+
     /** Items at the locators, in the model frame. */
     private void layers(AbstractClientPlayer player, PoseMatrices pose) {
         GL11.glPushAttrib(
@@ -227,6 +270,9 @@ public final class ThirdPersonRenderer {
                     pose.locator(bone, locator, 0);
                     items.renderHeld(player, offhand, locator, 0);
                 }
+            }
+            if (ElytraBridge.elytra(player) != null) {
+                wings(player, pose);
             }
             ItemStack helmet = player.inventory.armorItemInSlot(3);
             if (HeldItemRenderer.drawsOnHead(helmet)) {

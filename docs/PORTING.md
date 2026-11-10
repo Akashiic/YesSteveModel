@@ -1232,9 +1232,12 @@ Como as fases andam:
   briga, um clique não faz nada (o AkashicFishing trava a linha).
 * **O servidor** (o que só ele sabe) chega por dois estados externos que o Kunftig diz a partir do canal `kunftig:rod`
   (`FuturaModels.FISHING_STATE`/`FISHING_TENSION`, API 4): `fishing.state` com os nomes do `KunftigRods`
-  (`mordida`, `briga`, `recolher`, `captura`, `parada`) ou `escapou`, e os nomes em inglês; `fishing.tension` de 0 a
-  1. Limpar e pôr de novo recomeça (uma segunda mordida); `parada` no meio da briga volta a esperar. Quem chega perto
-  no meio de uma briga entra direto nela; um estado que toca uma vez não é tocado atrasado.
+  (`mordida`, `briga`, `recolher`, `captura`, `parada`), os do `RodMotion` do AkashicFishing (`briga_erro`, que
+  segue a briga sem recomeçar, `fuga`, `captura_rara`, `captura_mitica`) ou `escapou`, e os nomes em inglês;
+  `fishing.tension` de 0 a 1. Limpar e pôr de novo recomeça (uma segunda mordida). `parada` no meio da briga com a
+  linha ainda fora é a fuga (o AkashicFishing manda `parada` quando o peixe escapa de uma vara sem o estado `fuga`);
+  com a linha recolhida, a briga só acabou. Quem chega perto no meio de uma briga entra direto nela; um estado que
+  toca uma vez não é tocado atrasado.
 * **Clipes que tocam uma vez** passam a vez no fim (transição incluída): para `wait` com a linha fora, senão para
   `ready` (nada nosso: o `hold`/`main` de sempre). Trocar de item, dormir: `none`.
 * **Transições** por fase (`Phase.transitionSeconds`): 0,03 s na mordida, 0,04 s no lançamento, 0,3 s para a espera.
@@ -1269,6 +1272,35 @@ pose, todos os modelos caindo no conjunto padrão) e `BuiltinMolangTest`, que co
 * Pescando de barco (os clipes de uma vez mexem nas pernas por um instante) e andando durante a briga.
 * A câmera em primeira pessoa segue a altura da cabeça do modelo (`view_locator_camera`, etapa 6): o pulinho da captura
   e a inclinação da briga a movem uns 0,1 bloco, suavizado. Conferir se incomoda.
+
+## Elytra do Et Futurum Requiem
+
+O EFR (a "backlytra") põe a elytra do 1.9 no bíped vanilla: o planar no jogador (`etfu$isElytraFlying`, por mixin),
+a inclinação do corpo no `RenderPlayer.rotateCorpse` e as asas na passada da armadura (`LayerBetterElytra`, no
+`RenderLivingEvent.SetArmorModel`). Quem é desenhado com modelo pula as duas: o jogador planava em pé, na pose de
+"voando" (o voo dos outros jogadores é estimado pelo movimento, e quem plana parece voar) e sem asas.
+
+`client/ElytraBridge` lê o EFR por reflexão (nenhum dos dois precisa do outro; conferido contra o EFR 2.6.2):
+
+* `isFallFlying` vem do EFR, e planar desliga o voo estimado e a natação: toca o `elytra_fly` do modelo. Esse clipe
+  deita o corpo sozinho (`Root` 90°), como no upstream, cujo `setupRotations` é o da entidade viva, sem a inclinação de
+  planar do jogador; a inclinação do EFR não é aplicada (deitaria duas vezes).
+* As asas são a camada do próprio EFR (`LayerBetterElytra.doRenderLayer`: textura, a capa de quem tem uma, o brilho
+  de encantamento e os ângulos que o EFR suaviza) desenhada no grupo `ElytraLocator`, como o
+  `CustomPlayerElytraLayer` do upstream (locator escondido esconde as asas), no referencial do corpo do bíped
+  (`Rz(180°)`, sem os 2 px para trás que o EFR soma, porque o locator já fica nas costas). Modelo sem o locator (5 dos
+  24 embutidos: `wine_fox/05_magical`, `06_hanfu`, `08_sta`, `21_saint`, `22_elf`): as asas no `UpBody`, onde o modelo
+  padrão tem o locator (11 px acima do pivô, 2 px para trás), em vez de sumirem.
+* `query.has_elytra` e `ysm.elytra_rot_x/y/z` (graus) passam a valer: os ângulos das asas que o EFR guarda no jogador.
+* Primeira pessoa: planando, a câmera fica na altura vanilla (a cabeça deitada não é altura de olho).
+
+![Elytra do EFR no modelo default (em cima) e no bíped vanilla com o EFR (embaixo), no harness](img/elytra-efr.png)
+
+Harness: `only elytra` (`dev/RenderHarness.elytraSteps`; o `etfuturum-2.6.2-dev.jar` em `run/client/mods`): um segundo
+jogador com a elytra, em pé, planando de lado, mergulhando e de costas, cada um ao lado do vanilla, e um modelo sem o
+locator. **A checar** em jogo: a versão do EFR do TEOF (os nomes lidos são os do 2.6.2), o próprio jogador planando
+em terceira pessoa e outro jogador num servidor (o planar dele chega pelo `DataWatcher` do EFR), a elytra no slot do
+Baubles Expanded, e com o Akashic Player Backport (que também lê o planar do EFR para o bíped).
 
 ## Fases
 

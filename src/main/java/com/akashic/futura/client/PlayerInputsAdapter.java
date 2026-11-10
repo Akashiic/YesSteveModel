@@ -103,6 +103,7 @@ final class PlayerInputsAdapter {
             remote(s, p);
         }
         swimAndCrawl(s, p);
+        elytra(s, p);
 
         s.mainhand = item(p.getHeldItem());
         s.external = PlayerModels.INSTANCE.externalStates()
@@ -204,6 +205,28 @@ final class PlayerInputsAdapter {
             p.ridingEntity != null,
             s.flying);
         s.crawling = false;
+    }
+
+    /** Et Futurum Requiem's elytra: the glide (the {@code elytra_fly} state), whether one is worn and the wings. */
+    private static void elytra(PlayerSnapshot s, AbstractClientPlayer p) {
+        if (!ElytraBridge.present()) {
+            s.fallFlying = false;
+            s.hasElytra = false;
+            return;
+        }
+        s.fallFlying = ElytraBridge.flying(p);
+        s.hasElytra = ElytraBridge.elytra(p) != null;
+        float[] rot = s.hasElytra ? ElytraBridge.wingRotation(p) : null;
+        for (int i = 0; i < 3; i++) {
+            s.elytraRotation[i] = rot == null ? 0 : rot[i];
+        }
+        if (s.fallFlying) {
+            s.swimming = false; // the glide wins over the swimming pose, as in 1.13+
+            s.crawling = false;
+            // nor is it creative flight: another player's flight is estimated from his motion here (1.7.10 does not
+            // send it), and a glide looks like one; EFR itself stops the glide when its player flies
+            s.flying = false;
+        }
     }
 
     /** A collision box (block or entity) in a thin slab under the player's feet. */

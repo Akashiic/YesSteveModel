@@ -130,6 +130,7 @@ public final class RenderHarness {
         langSteps();
         replacementSteps();
         fishingSteps();
+        elytraSteps();
         skinSteps();
         remoteSteps();
         diagnoseSteps();
@@ -924,6 +925,94 @@ public final class RenderHarness {
         }
     }
 
+    // ---- Et Futurum Requiem's elytra (client/ElytraBridge). Steps "elytra-*" ("only elytra" runs just these). ----
+
+    /** Gliding as EFR's mixin would set it, every tick of the step ({@link #elytraTick}); null for standing. */
+    private float[] elytraGlide;
+
+    /**
+     * The second player wearing EFR's elytra: standing (the wings folded on the back), gliding level from the side,
+     * diving, and gliding seen from behind; each with the vanilla biped (EFR's own drawing) to compare. Needs
+     * etfuturum in run/client/mods; without it the steps report it and take the shots anyway.
+     */
+    private void elytraSteps() {
+        for (boolean vanilla : new boolean[] { false, true }) {
+            String v = vanilla ? "vanilla-" : "";
+            step("elytra-" + v + "stand-back", () -> elytraStep(vanilla, 0, null));
+            step("elytra-" + v + "glide-side", () -> elytraStep(vanilla, 90, new float[] { 0 }));
+            step("elytra-" + v + "dive-side", () -> elytraStep(vanilla, 90, new float[] { 40 }));
+            step("elytra-" + v + "glide-back", () -> elytraStep(vanilla, 0, new float[] { -10 }));
+        }
+        step("elytra-model-without-locator", () -> {
+            elytraStep(false, 90, new float[] { 0 });
+            PlayerModels.INSTANCE.use("wine_fox/22_elf");
+        });
+        step("elytra-end", () -> {
+            elytraGlide = null;
+            removeFake();
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            Minecraft.getMinecraft().gameSettings.hideGUI = false;
+        });
+    }
+
+    private void elytraStep(boolean vanilla, float yaw, float[] glide) {
+        replRemove();
+        removeFake();
+        PlayerModels.INSTANCE.setEnabled(!vanilla);
+        PlayerModels.INSTANCE.use("default");
+        fakeItem(vanilla, new ItemStack(Items.fishing_rod), false, yaw);
+        fake.inventory.setInventorySlotContents(fake.inventory.currentItem, null);
+        net.minecraft.item.Item elytra = (net.minecraft.item.Item) net.minecraft.item.Item.itemRegistry
+            .getObject("etfuturum:elytra");
+        report("  elytra item " + elytra);
+        if (elytra != null) {
+            fake.inventory.armorInventory[2] = new ItemStack(elytra);
+        }
+        elytraGlide = glide;
+        settle = 30;
+    }
+
+    private void elytraTick() {
+        if (fake == null || index < 0
+            || index >= names.size()
+            || !names.get(index)
+                .startsWith("elytra-")) {
+            return;
+        }
+        boolean glide = elytraGlide != null;
+        try {
+            fake.getClass()
+                .getMethod("etfu$setElytraFlying", boolean.class)
+                .invoke(fake, glide);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            if (ticks == 1) {
+                report("  no EFR elytra on the player: " + e);
+            }
+        }
+        if (glide) {
+            float pitch = elytraGlide[0];
+            fake.rotationPitch = fake.prevRotationPitch = pitch;
+            // flying where it looks, a little sideways (the lean into the turn)
+            double yawRad = Math.toRadians(fakeYaw + 15);
+            fake.motionX = -Math.sin(yawRad) * 0.6;
+            fake.motionZ = Math.cos(yawRad) * 0.6;
+            fake.motionY = -Math.sin(Math.toRadians(pitch)) * 0.6;
+            fake.onGround = false;
+            fake.setPositionAndRotation(fake.posX, 5, fake.posZ, fakeYaw, pitch);
+        }
+        if (ticks == 25) {
+            String main = "-";
+            try {
+                main = PlayerModels.INSTANCE.animator(fake)
+                    .mainState();
+            } catch (RuntimeException e) {
+                // the vanilla twin: no animator was updated
+            }
+            report("  flying " + ElytraProbe.flying(fake) + " ticks " + ElytraProbe.ticks(fake) + " main " + main);
+        }
+    }
+
     // Phase 5a: Bedrock controllers, functions and sounds. Steps "ctrl-*" ("only ctrl" runs just these).
     private void controllerSteps() {
         step("ctrl-default-sword", () -> {
@@ -1494,6 +1583,7 @@ public final class RenderHarness {
         itemTick();
         replHold();
         fishTick();
+        elytraTick();
         if (++ticks >= (settle > 0 ? settle : SETTLE_TICKS)) {
             if (names.get(index)
                 .contains("-copies-")) {
