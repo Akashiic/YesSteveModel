@@ -16,6 +16,7 @@ import com.akashic.futura.format.pojo.animation.AnimationFile;
 import com.akashic.futura.model.LoadedModel;
 import com.akashic.futura.model.ModelLoader;
 import com.akashic.futura.model.ModelSource;
+import com.akashic.futura.model.ReplacementTarget;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -230,17 +231,23 @@ public final class ModelLimits {
         }
     }
 
-    /** Bones, cubes and animations of a parsed model. */
+    /** Bones, cubes and animations of a parsed model, its projectile and vehicle replacements included. */
     public void checkModel(LoadedModel model) throws IOException {
         int bones = model.main.bones.length + model.arm.bones.length;
         int cubes = model.main.cubeCount + model.arm.cubeCount;
+        int animations = 0;
+        for (ReplacementTarget target : model.replacements()) {
+            bones += target.geometry.bones.length;
+            cubes += target.geometry.cubeCount;
+            animations += target.animation == null || target.animation.animations == null ? 0
+                : target.animation.animations.size();
+        }
         if (bones > maxBones) {
             throw new IOException(bones + " bones, over " + maxBones);
         }
         if (cubes > maxCubes) {
             throw new IOException(cubes + " cubes, over " + maxCubes);
         }
-        int animations = 0;
         for (AnimationFile file : model.animations.values()) {
             animations += file.animations == null ? 0 : file.animations.size();
         }

@@ -17,6 +17,7 @@ import com.akashic.futura.format.pojo.controller.AnimationController;
 import com.akashic.futura.format.pojo.controller.AnimationControllerFile;
 import com.akashic.futura.format.pojo.manifest.ModelManifest;
 import com.akashic.futura.format.pojo.manifest.models.PBRTextureSet;
+import com.akashic.futura.format.pojo.manifest.models.ReplacedModelFiles;
 import com.akashic.futura.format.pojo.model.GeoModel;
 import com.akashic.futura.format.pojo.model.GeometryDescription;
 import com.akashic.futura.geo.BakedGeometry;
@@ -103,6 +104,52 @@ public final class ModelLoader {
         if (widthScale == 0.7f && desc != null) {
             widthScale = desc.ysmWidthScale;
         }
+
+        // Projectiles and vehicles (upstream RawModelAssembler.writeReplacedModels): the projectiles, the deprecated
+        // arrow after them, then the vehicles. A target that cannot be read is left out, the model still loads.
+        List<String> replacementErrors = new ArrayList<>();
+        List<ReplacementTarget> projectiles = new ArrayList<>();
+        int index = 0;
+        for (ReplacedModelFiles files : manifest.files.projectiles.list) {
+            addReplacement(
+                projectiles,
+                replacementErrors,
+                gson,
+                animationGson,
+                source,
+                ReplacementTarget.Kind.PROJECTILE,
+                index++,
+                files,
+                false);
+        }
+        @SuppressWarnings("deprecation")
+        ReplacedModelFiles arrow = manifest.files.arrow;
+        if (arrow != null) {
+            addReplacement(
+                projectiles,
+                replacementErrors,
+                gson,
+                animationGson,
+                source,
+                ReplacementTarget.Kind.PROJECTILE,
+                index,
+                arrow,
+                true);
+        }
+        List<ReplacementTarget> vehicles = new ArrayList<>();
+        index = 0;
+        for (ReplacedModelFiles files : manifest.files.vehicles.list) {
+            addReplacement(
+                vehicles,
+                replacementErrors,
+                gson,
+                animationGson,
+                source,
+                ReplacementTarget.Kind.VEHICLE,
+                index++,
+                files,
+                false);
+        }
         return new LoadedModel(
             source,
             manifest,
@@ -114,7 +161,67 @@ public final class ModelLoader {
             widthScale,
             controllers,
             functions,
-            sounds);
+            sounds,
+            projectiles,
+            vehicles,
+            replacementErrors);
+    }
+
+    /**
+     * Reads one replacement target (upstream {@code writeReplacedModel}): an entry without {@code match} is skipped,
+     * except the deprecated {@code arrow}, which then matches the arrow as the legacy layout's did; its geometry is
+     * required, its animation and controller files are optional, and a missing texture makes it unusable.
+     */
+    private static void addReplacement(List<ReplacementTarget> out, List<String> errors, Gson gson, Gson animationGson,
+        ModelSource source, ReplacementTarget.Kind kind, int index, ReplacedModelFiles files, boolean legacyArrow) {
+        if (files == null) {
+            return;
+        }
+        List<String> match = new ArrayList<>();
+        if (files.match != null) {
+            for (String m : files.match) {
+                if (m != null && !m.trim()
+                    .isEmpty()) {
+                    match.add(m.trim());
+                }
+            }
+        }
+        if (match.isEmpty()) {
+            if (!legacyArrow) {
+                return;
+            }
+            match.add(ReplacementTarget.ARROW);
+        }
+        String what = kind.category + " " + match;
+        try {
+            if (blank(files.model)) {
+                throw new IOException(source.name() + ": " + what + " has no model");
+            }
+            GeoModel raw = read(gson, source, files.model, GeoModel.class);
+            if (raw.minecraftGeometry == null || raw.minecraftGeometry.isEmpty()) {
+                throw new IOException(source.name() + ": " + files.model + " has no geometry");
+            }
+            BakedGeometry geometry = GeoBaker.bake(raw);
+            AnimationFile animation = blank(files.animation) ? null
+                : read(animationGson, source, files.animation, AnimationFile.class);
+            Map<String, AnimationController> controllers = new LinkedHashMap<>();
+            if (!blank(files.controller)) {
+                AnimationControllerFile file = read(gson, source, files.controller, AnimationControllerFile.class);
+                if (file.animationControllers != null) {
+                    for (Map.Entry<String, AnimationController> e : new TreeMap<>(file.animationControllers)
+                        .entrySet()) {
+                        if (e.getKey() != null && e.getValue() != null) {
+                            controllers.put(e.getKey(), e.getValue());
+                        }
+                    }
+                }
+            }
+            String texture = files.texture == null || blank(files.texture.uv) ? null
+                : ModelSource.clean(files.texture.uv.trim());
+            out.add(new ReplacementTarget(kind, index, match, geometry, animation, controllers, texture));
+        } catch (IOException | RuntimeException e) {
+            errors.add(what + ": " + e.getMessage());
+        }
     }
 
     private static boolean blank(String s) {

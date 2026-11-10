@@ -164,4 +164,35 @@ class ModelLimitsTest {
         fewFiles.maxFiles = 3;
         assertThrows(IOException.class, () -> fewFiles.validate(files, source(files)));
     }
+
+    /** Projectile and vehicle replacements count toward the bone, cube and animation totals. */
+    @Test
+    void countsReplacementTargets() throws IOException {
+        com.akashic.futura.model.LoadedModel model = com.akashic.futura.model.ModelLoader
+            .load(com.akashic.futura.model.BuiltinIndex.source("default"));
+        int playerBones = model.main.bones.length + model.arm.bones.length;
+        int playerCubes = model.main.cubeCount + model.arm.cubeCount;
+        int replacementBones = 0;
+        int replacementCubes = 0;
+        for (com.akashic.futura.model.ReplacementTarget t : model.replacements()) {
+            replacementBones += t.geometry.bones.length;
+            replacementCubes += t.geometry.cubeCount;
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(replacementBones > 0 && replacementCubes > 0);
+        ModelLimits bones = new ModelLimits();
+        bones.maxBones = playerBones + replacementBones - 1;
+        assertThrows(IOException.class, () -> bones.checkModel(model));
+        bones.maxBones = playerBones + replacementBones;
+        bones.checkModel(model);
+        ModelLimits cubes = new ModelLimits();
+        cubes.maxCubes = playerCubes + replacementCubes - 1;
+        assertThrows(IOException.class, () -> cubes.checkModel(model));
+        int animations = 0;
+        for (com.akashic.futura.format.pojo.animation.AnimationFile f : model.animations.values()) {
+            animations += f.animations.size();
+        }
+        ModelLimits anims = new ModelLimits();
+        anims.maxAnimations = animations;
+        assertThrows(IOException.class, () -> anims.checkModel(model));
+    }
 }
