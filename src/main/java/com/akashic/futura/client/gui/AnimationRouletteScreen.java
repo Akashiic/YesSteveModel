@@ -259,6 +259,12 @@ public class AnimationRouletteScreen extends GuiScreen {
     private static final int CONTENT_TOP = 16;
     private static final int CONTENT_BOTTOM = 152;
 
+    /** Opens a config button's panel, as a click on its inner ring does (also for the harness). */
+    public void openConfig(ExtraAnimationButton button) {
+        config = button;
+        configScroll = 0;
+    }
+
     /** The local animator's Molang context, or null (no model). */
     private static com.akashic.futura.molang.MolangContext context() {
         Minecraft mc = Minecraft.getMinecraft();

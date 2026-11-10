@@ -299,8 +299,7 @@ manda o pedido ao servidor, e cada cliente que recebe o repasse chama
 
 Ainda não:
 
-* `extra_animation_buttons` com `config_forms`: o anel interno (engrenagem) abre um painel que só lista os formulários;
-  editar (`checkbox`/`range`/`radio` em `v.roaming`) e sincronizar fica para depois, com a rede.
+* ~~`extra_animation_buttons` com `config_forms`: o painel só lista os formulários~~: editáveis desde a fase 5b.
 * Os rótulos e descrições traduzidos dos arquivos `lang` do modelo (`properties.extra_animation.<chave>`) e a dica com
   a descrição: aparece o texto do `ysm.json`.
 * Mensagem no chat ao tocar (opção `PRINT_ANIMATION_ROULETTE_MSG`).
@@ -514,7 +513,8 @@ sem serializar):
 * ~~Num Thermos/Crucible de verdade com Java 21: o canal FML convivendo com plugins Bukkit, o modo offline~~: feito
   no teste do TEOF 5.3 (abaixo); o modo online segue a checar.
 * ~~Vários jogadores ao mesmo tempo: troca de modelo e emote de outro jogador vistos ao vivo~~: feito no teste do
-  TEOF 5.3, com dois clientes. Quem chega perto no meio de um emote não o vê (o repasse é só para quem já rastreia).
+  TEOF 5.3, com dois clientes. ~~Quem chega perto no meio de um emote não o vê~~: resolvido na fase 5b (o emote vai
+  no `StartTracking`).
 * Links lentos e muitos jogadores baixando juntos: não há limite global, só por jogador; os pedaços disputam a conexão
   com os pacotes do jogo.
 * Cliente vanilla e cliente com o mod em servidor sem o mod (pelo código, nada é mandado a quem não manda hello e o
@@ -713,6 +713,114 @@ Achados fora do futura3d:
   jogador (no teste foi posta só no cliente que a fotografou).
 
 Testes: 313 (sem mudança: a ponte do Backhand depende do FML carregado).
+
+## Fase 5b: `v.roaming` e `ysm.sync` pela rede, formulários da roleta, combos de lâmina
+
+### Protocolo 2
+
+`Protocol.VERSION = 2`, ainda falando 1 (`MIN_VERSION`). O servidor responde no hello do cliente com a versão dele e
+nunca manda a um cliente 1 um tipo novo; um cliente 2 num servidor 1 recebe o hello do servidor sozinho (versão 1, sem
+modelos, como o 1 sempre respondeu a uma versão diferente) e diz hello de novo com 1 (`ClientSession`). Os dois lados
+ignoram os tipos novos numa sessão 1. Versão fora de `MIN_VERSION..VERSION`: só o hello, como antes.
+
+| Tipo | Sentido | Campos |
+|---|---|---|
+| 8 `S_ROAMING` | S→C | UUID, `reset`, até 16 × (nome, float) |
+| 9 `S_SYNC` | S→C | UUID, até 16 floats |
+| 68 `C_ROAMING` | C→S | `reset`, até 16 × (nome, float) |
+| 69 `C_SYNC` | C→S | até 16 floats |
+
+* Nomes de `v.roaming.*` sem o `roaming.`: 1 a 32 bytes de `a-z 0-9 _` em partes separadas por um ponto
+  (`Protocol.validRoamingName`, o limite de nome do upstream), sem repetição numa mensagem; floats finitos; tudo
+  conferido antes de alocar, nos dois sentidos (o codificador recusa o que o decodificador recusaria). Nunca Molang:
+  nomes e números.
+* Servidor (`ModelServer`): guarda até 64 variáveis por jogador (`MAX_ROAMING_VARIABLES` do upstream; nomes além
+  disso ficam fora), apagadas quando o modelo dele muda (as variáveis são de um modelo; os clientes também as
+  esquecem); repassa a quem o rastreia e fala a versão 2; `reset` apaga as outras antes. `ysm.sync` vai a quem o
+  rastreia **e de volta a quem mandou** (como o `MolangSyncEvent` do upstream). Taxa: 10 por segundo, rajada de 20,
+  para cada um dos dois.
+* **Quem começa a rastrear** (`PlayerEvent.StartTracking` do Forge, depois do pacote de spawn): recebe o emote que o
+  outro toca e as variáveis dele (a primeira mensagem com `reset`). O emote começa do início (o tempo decorrido não
+  vai). O cliente diz "parou" quando um emote de uma vez acaba sozinho, para o servidor não mandá-lo mais.
+* Cliente (`client/net/ClientNetwork`, núcleo puro em `net/RoamingTracker` e `net/RemoteRoaming`): a cada tick
+  compara as variáveis `roaming.*` numéricas do animador local com o que o servidor sabe e manda só a diferença, no
+  máximo a cada 4 ticks (um slider arrastado manda o último valor); uma variável que some, ou um modelo novo, manda
+  tudo com `reset`. As dos outros ficam por UUID e são escritas no animador de cada um sempre que mudam ou o animador
+  é trocado (o modelo dele terminou de carregar).
+
+### `ysm.sync` (seam para a outra frente)
+
+`net/MolangSync`: `ysm.sync(...)` no `PlayerMolangContext` chama `MolangSync.emit(animador, args)` (até 16 números;
+texto e vetor viram 0). O `ClientNetwork` instala o emissor: só o animador do jogador local conta; com um servidor 2
+vai como `C_SYNC` (balde de 10/s no cliente também), sem servidor roda na hora, localmente. O que chega (`S_SYNC`,
+inclusive o eco do próprio) vai a `MolangSync.receive(animador do jogador, args)`, que chama o `Receiver`. **A
+reconciliar no merge:** os handlers `sync` do modelo (funções/eventos do usuário) são da outra frente (`anim/`); até lá
+o receptor padrão só guarda o último evento (`lastTarget`/`lastReceived`), e é o que o harness confere. O `defer`
+continua sem efeito aqui (é local, da outra frente).
+
+### Formulários da roleta (`emote/ConfigForm`)
+
+O painel da engrenagem agora edita: `checkbox` escreve 1 ou 0 na l-value do `value`, `range` escreve o valor preso a
+`min..max` e arredondado ao `step` a partir do `min` (slider: clique e arraste), `radio` lê o índice do rótulo pelo
+valor arredondado (fora da faixa: o primeiro) e, no clique, roda a ação Molang do rótulo (`"v.roaming.eye=2"`; rótulo
+sem ação escreve o índice). Tudo no contexto Molang do animador local, sem rede: o que é `v.roaming.*` vai pelo
+rastreador acima, o resto fica local. Só l-values de variável (`v.`, `variable.`, `r.`, `roaming.`) são escritas,
+por um programa por formulário (`<value> = v.futura3d_config_value`). O upstream manda uma ação ao servidor, que a
+repassa e cada cliente roda o handler local; aqui as variáveis não-roaming não chegam aos outros (**a checar** se algum
+modelo depende disso). Roda do mouse sobre o painel rola; a descrição aparece na dica.
+
+![Roleta: o painel da Momo editado (sliders, caixas) e o rádio da Sta com o último rótulo escolhido](img/fase5b-roleta-config.png)
+
+### SlashBlade nos modelos: estados externos (API 3)
+
+`api/FuturaModels.API_VERSION = 3`: `setExternalState(jogador, chave, valor)` / `externalState`, `hasAnimation`,
+`playingAnimation`. Os estados ficam por UUID em `anim/ExternalStates` (chave ≤ 64, valor ≤ 128, 16 por jogador, 512
+jogadores, apagados ao sair do mundo); cada mudança de valor muda a geração da chave, então limpar e pôr o mesmo valor
+recomeça o que ele começou. O runtime (`anim/SlashBladeStates`, de `SlashBladeAnimation`/`SwingPredicate` do upstream):
+
+* `slashblade.held` (qualquer valor; também um `ItemSlashBlade` de verdade): a classe `:slashblade` no item da mão
+  (`hold_mainhand:slashblade`, `swing:slashblade`...) e o estado principal tentado como `slashblade:<estado>`
+  (`slashblade:idle`, `slashblade:walk`...), como `playMainAnimation`.
+* `slashblade.combo` (`combo_a1` ou `slashblade:combo_a1`; o `NAME_FIX` `combo_a4_ex` → `combo_a4ex`): tocado uma
+  vez no controlador `swing`; enquanto há combo, o golpe comum não toca; um combo que o modelo não tem só segura o
+  golpe. Diferente do upstream: um clipe que terminou não recomeça sozinho (o upstream recarrega a cada quadro; aqui um
+  nome cobre a corrente inteira do SlashBlade e dura mais que o clipe), só quando a geração muda.
+* `ctrl.slashblade_animation` dá o combo. Todo modelo cai no conjunto `slashblade` do modelo padrão, como no upstream.
+
+O Kunftig chama isso por reflexão (ver o Kunftig, `docs/playermodel/ESTUDO-YSM.md`, seção 10): diz `slashblade.held`
+enquanto a mão segura uma lâmina dele e `slashblade.combo` com o nome do estado do SlashBlade pelo primeiro quadro da
+corrente que o servidor manda; com o modelo tocando as animações, a lâmina vai nos três locators como no
+`newMainhandSlashBlade` do upstream e a visibilidade vem dos clipes.
+
+![wine_fox/13_matured com a lâmina substituta do harness do Kunftig: parada (slashblade:idle, embainhada na cintura),
+combo_a1 (golpe embainhado), combo_a3 (lâmina fora no BladeLocator, bainha no SheathLocator), aerial_rave_a1, combo_a3
+de costas, combo_a3 no modelo default](img/fase5b-lamina-combos.png)
+
+### Resultado
+
+* Harness do futura3d (`only config`, mundo de um jogador, o servidor integrado fala o protocolo 2): os quatro
+  formulários da Momo escritos (`v.player_size` 2,2, `v.roaming.back` 1); o servidor recebe
+  `{back=1.0, smallfox_size=1.0, end_rod=0.0}` (as outras duas o próprio Molang do modelo põe); `ysm.sync(1, 2.5,
+  v.roaming.back)` volta do servidor como `[1.0, 2.5, 1.0]` para o animador local; o rádio de `v.roaming.bagemotion`
+  da Sta vai como 4.
+* Harness do Kunftig (`modelcombos`, o jar de dev do futura3d em `run/client/mods`, a lâmina substituta): o log de
+  cada foto confere `main=slashblade:idle`, `hold=hold_mainhand:slashblade`, `swing=slashblade:combo_a1`,
+  `slashblade:combo_a3`, `slashblade:aerial_rave_a1` durante as correntes e `swing` vazio depois; o outro jogador
+  visto de lado e o modelo default também.
+
+**A checar**:
+
+* Com dois clientes num servidor dedicado: as variáveis e o `ysm.sync` entre jogadores, o emote ao chegar perto, e
+  um cliente 1 com um servidor 2 e vice-versa (testado com sessões reais pelo codec, não com jars de versões
+  diferentes).
+* O emote de quem chega perto começa do início, não do ponto em que está.
+* Os handlers `sync` do modelo (a outra frente); os formulários com variáveis não-roaming vistos pelos outros.
+* Lado a lado com o YSM 1.20 e o SlashBlade de verdade: a pose do `slashblade:idle` (a lâmina embainhada sai de lado)
+  e os nomes dos combos além dos que o harness do Kunftig confere.
+
+Testes: 337 (24 desta fase: codec e limites do protocolo 2, negociação de versão, retransmissão, limites e taxa,
+`StartTracking`, cliente 1, rastreador e armazém das variáveis, seam do `ysm.sync`, formulários com os modelos
+embutidos, estados externos e o SlashBlade no `wine_fox/13_matured` e no `misc/1_alex`).
 
 ## Fases
 

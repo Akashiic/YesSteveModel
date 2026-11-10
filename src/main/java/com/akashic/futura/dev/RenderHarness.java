@@ -122,6 +122,7 @@ public final class RenderHarness {
         itemSteps();
         pickerSteps();
         serverSteps();
+        configSteps();
         onlySteps();
     }
 
@@ -303,6 +304,106 @@ public final class RenderHarness {
             LocalEmotes.INSTANCE.stop();
             keys(false, false, false, false);
             view(2, 0);
+        });
+    }
+
+    // Phase 5b: the roulette's config forms written through the local animator, the roaming variables they set sent
+    // to the (integrated) server, and ysm.sync coming back from it.
+    private void configSteps() {
+        step("config-momo-panel", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("wine_fox/14_momo");
+            keys(false, false, false, false);
+            view(2, 0);
+            keepScreen = true;
+            AnimationRouletteScreen screen = new AnimationRouletteScreen(LocalEmotes.INSTANCE.menu());
+            mc.displayGuiScreen(screen);
+            com.akashic.futura.model.LoadedModel model = PlayerModels.INSTANCE.model();
+            if (model != null && !model.manifest.properties.extraAnimationButtons.isEmpty()) {
+                com.akashic.futura.format.pojo.manifest.settings.ExtraAnimationButton button = model.manifest.properties.extraAnimationButtons
+                    .get(0);
+                screen.openConfig(button);
+                com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE.animator(mc.thePlayer);
+                for (com.akashic.futura.format.pojo.manifest.settings.ConfigForms f : button.configForms) {
+                    switch (com.akashic.futura.emote.ConfigForm.type(f)) {
+                        case RANGE:
+                            com.akashic.futura.emote.ConfigForm
+                                .writeFloat(f, a.context(), com.akashic.futura.emote.ConfigForm.atFraction(f, 0.4));
+                            break;
+                        case CHECKBOX:
+                            com.akashic.futura.emote.ConfigForm.writeBool(f, a.context(), true);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                report(
+                    "config momo: " + button.configForms.size()
+                        + " forms written; v.player_size="
+                        + a.variables()
+                            .get("player_size")
+                        + " v.roaming.back="
+                        + a.variables()
+                            .get("roaming.back"));
+            }
+        });
+        step("config-roaming-sent", () -> {
+            keepScreen = false;
+            Minecraft mc = Minecraft.getMinecraft();
+            mc.displayGuiScreen(null);
+            view(2, 0);
+            com.akashic.futura.client.net.ClientNetwork net = com.akashic.futura.client.net.ClientNetwork.INSTANCE;
+            report(
+                "network: " + net.status()
+                    + "; roaming sent to the server: "
+                    + net.sentRoaming()
+                    + "; server holds: "
+                    + (com.akashic.futura.server.ForgeModelServer.current() == null ? "-"
+                        : com.akashic.futura.server.ForgeModelServer.current()
+                            .roamingOf(serverPlayer(mc).getUniqueID())));
+            // ysm.sync from the model's Molang: through the server and back
+            com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE.animator(mc.thePlayer);
+            com.akashic.futura.molang.Molang.parse("ysm.sync(1, 2.5, v.roaming.back)")
+                .evaluate(a.context());
+        });
+        step("config-sync-back", () -> {
+            float[] got = com.akashic.futura.net.MolangSync.lastReceived();
+            report(
+                "ysm.sync came back: " + (got == null ? "nothing" : java.util.Arrays.toString(got))
+                    + " for the local animator: "
+                    + (com.akashic.futura.net.MolangSync.lastTarget()
+                        == PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer)));
+            Minecraft mc = Minecraft.getMinecraft();
+            PlayerModels.INSTANCE.use("wine_fox/08_sta");
+            keepScreen = true;
+            AnimationRouletteScreen screen = new AnimationRouletteScreen(LocalEmotes.INSTANCE.menu());
+            mc.displayGuiScreen(screen);
+            com.akashic.futura.model.LoadedModel model = PlayerModels.INSTANCE.model();
+            if (model != null) {
+                for (com.akashic.futura.format.pojo.manifest.settings.ExtraAnimationButton b : model.manifest.properties.extraAnimationButtons) {
+                    for (com.akashic.futura.format.pojo.manifest.settings.ConfigForms f : b.configForms) {
+                        if (com.akashic.futura.emote.ConfigForm.type(f)
+                            == com.akashic.futura.emote.ConfigForm.Type.RADIO && f.value.contains("roaming")) {
+                            screen.openConfig(b);
+                            com.akashic.futura.emote.ConfigForm.clickLabel(
+                                f,
+                                PlayerModels.INSTANCE.animator(mc.thePlayer)
+                                    .context(),
+                                f.labels.size() - 1);
+                            report("config sta: " + b.name + " radio " + f.value + " -> last label");
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+        step("config-sta-sent", () -> {
+            keepScreen = false;
+            Minecraft mc = Minecraft.getMinecraft();
+            mc.displayGuiScreen(null);
+            report("roaming sent for sta: " + com.akashic.futura.client.net.ClientNetwork.INSTANCE.sentRoaming());
+            PlayerModels.INSTANCE.use("default");
         });
     }
 
