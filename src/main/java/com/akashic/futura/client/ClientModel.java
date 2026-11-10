@@ -94,7 +94,10 @@ public final class ClientModel {
      */
     static ClientModel load(String key, ModelSource source, PackTextures packTextures) throws IOException {
         LoadedModel loaded = ModelLoader.load(source);
-        ModelInfo info = ModelInfo.of(loaded.manifest, key);
+        ModelInfo info = ModelInfo.of(
+            loaded.manifest,
+            key,
+            com.akashic.futura.model.ModelLang.readQuietly(source, loaded.manifest.files.languagePath));
         ModelAnimations animations = ModelAnimations.compile(loaded);
         ModelAnimations arms = null;
         try {

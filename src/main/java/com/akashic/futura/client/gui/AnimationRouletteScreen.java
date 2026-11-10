@@ -6,7 +6,9 @@
  * extra_animation_buttons are drawn here as simple flat widgets (checkbox, slider, radio) that read and write through
  * emote/ConfigForm on the local animator (upstream submits a config action to the server, which forwards it to the
  * viewers; here roaming variables a form writes are synced by the client network, other variables stay local);
- * labels are not looked up in the model's lang files yet; no chat message on play.
+ * the translated texts (labels, sub-page names, the tooltip with the description, form titles, descriptions and
+ * labels) come from emote/RouletteText; the chat line on play is behind the client option
+ * print_animation_roulette_msg (upstream's PrintAnimationRouletteMsg); the config panel has a title line.
  */
 package com.akashic.futura.client.gui;
 
@@ -21,6 +23,7 @@ import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.ResourceLocation;
 
@@ -28,13 +31,17 @@ import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import com.akashic.futura.anim.PlayerAnimator;
+import com.akashic.futura.client.ClientModel;
+import com.akashic.futura.client.ClientOptions;
 import com.akashic.futura.client.EmoteKeys;
 import com.akashic.futura.client.LocalEmotes;
 import com.akashic.futura.client.PlayerModels;
 import com.akashic.futura.emote.ConfigForm;
 import com.akashic.futura.emote.RouletteMenu;
+import com.akashic.futura.emote.RouletteText;
 import com.akashic.futura.format.pojo.manifest.settings.ConfigForms;
 import com.akashic.futura.format.pojo.manifest.settings.ExtraAnimationButton;
+import com.akashic.futura.model.ModelLang;
 
 /**
  * The extra-animation roulette: eight slices per page around the centre, the lock button in the middle, paging and
@@ -51,11 +58,15 @@ public class AnimationRouletteScreen extends GuiScreen {
     private static final int RETURN = 3;
 
     private final RouletteMenu menu;
+    /** The model's texts in the language of the game when the roulette was opened. */
+    private final RouletteText text;
     private int x;
     private int y;
     private int selected = -1;
     private int hoverConfig = -1;
     private ExtraAnimationButton config;
+    /** The open config panel's title: the label of the slice that opened it. */
+    private String configTitle;
     /** The config panel's widgets as last laid out (clicks hit these). */
     private final List<Row> rows = new ArrayList<>();
     private int configScroll;
@@ -85,6 +96,10 @@ public class AnimationRouletteScreen extends GuiScreen {
 
     public AnimationRouletteScreen(RouletteMenu menu) {
         this.menu = menu;
+        ClientModel model = PlayerModels.INSTANCE.localModel();
+        this.text = new RouletteText(
+            model == null ? ModelLang.EMPTY : model.info.lang,
+            ModelLang.locale(Minecraft.getMinecraft().gameSettings.language));
     }
 
     @Override
@@ -134,7 +149,7 @@ public class AnimationRouletteScreen extends GuiScreen {
             if (path.length() > 0) {
                 path.append(" > ");
             }
-            path.append(id);
+            path.append(text.pageName(menu, id));
         }
         drawCenteredString(
             fontRendererObj,
@@ -147,7 +162,23 @@ public class AnimationRouletteScreen extends GuiScreen {
         drawRect(x + 157, y - 87, x + 238, y - 72, 0xCF000000);
         drawCenteredString(fontRendererObj, (menu.page() + 1) + "/" + menu.pageCount(), x + 197, y - 83, 0x55FFFF);
         super.drawScreen(mouseX, mouseY, partialTicks);
-        drawConfig(mouseX, mouseY);
+        if (!drawConfig(mouseX, mouseY)) {
+            drawDescription(mouseX, mouseY);
+        }
+    }
+
+    /** Upstream's {@code drawTooltips}: the hovered slice's description from the model's lang files, if any. */
+    private void drawDescription(int mouseX, int mouseY) {
+        List<RouletteMenu.Entry> entries = menu.pageEntries();
+        if (selected < 0 || selected >= entries.size()) {
+            return;
+        }
+        String desc = text.description(entries.get(selected));
+        if (desc != null) {
+            @SuppressWarnings("unchecked")
+            List<String> tip = fontRendererObj.listFormattedStringToWidth(desc, 240);
+            drawHoveringText(tip, mouseX, mouseY, fontRendererObj);
+        }
     }
 
     private void drawFans(int mouseX, int mouseY) {
@@ -228,7 +259,8 @@ public class AnimationRouletteScreen extends GuiScreen {
                     (int) (y + 35 * Math.sin(angle) - lineHeight / 2f),
                     0xFFFFFF);
             }
-            String name = entry.isClassify() ? EnumChatFormatting.RED + entry.label : entry.label;
+            String label = text.label(entry);
+            String name = entry.isClassify() ? EnumChatFormatting.RED + label : label;
             @SuppressWarnings("unchecked")
             List<String> lines = fontRendererObj.listFormattedStringToWidth(name, 50);
             int lineY = yPos - lines.size() * lineHeight + 2;
@@ -263,6 +295,13 @@ public class AnimationRouletteScreen extends GuiScreen {
     public void openConfig(ExtraAnimationButton button) {
         config = button;
         configScroll = 0;
+        configTitle = button.name;
+        for (RouletteMenu.Entry entry : menu.entries()) {
+            if (entry.config == button) {
+                configTitle = text.label(entry);
+                break;
+            }
+        }
     }
 
     /** The local animator's Molang context, or null (no model). */
@@ -278,23 +317,35 @@ public class AnimationRouletteScreen extends GuiScreen {
     /**
      * The open config button's forms, editable: a checkbox writes 1 or 0, a slider its value snapped to the step, a
      * radio label runs its action. The mouse wheel over the panel scrolls it; the description shows on hover.
+     *
+     * @return whether a form's description was drawn as the tooltip
      */
-    private void drawConfig(int mouseX, int mouseY) {
+    private boolean drawConfig(int mouseX, int mouseY) {
         rows.clear();
         if (config == null) {
-            return;
+            return false;
         }
         com.akashic.futura.molang.MolangContext ctx = context();
         int left = x + 125, top = y - 46;
         drawRect(left, top, left + PANEL_W, top + PANEL_H, 0xEF434242);
-        drawString(fontRendererObj, EnumChatFormatting.GOLD + config.name, left + 4, top + 4, 0xFFFFFF);
+        drawString(
+            fontRendererObj,
+            EnumChatFormatting.GOLD + trim(configTitle == null ? config.name : configTitle, PANEL_W - 8),
+            left + 4,
+            top + 4,
+            0xFFFFFF);
         int lineH = fontRendererObj.FONT_HEIGHT;
         int rowY = top + CONTENT_TOP - configScroll;
         int contentTop = top + CONTENT_TOP, contentBottom = top + CONTENT_BOTTOM;
         Row hovered = null;
-        for (ConfigForms form : config.configForms) {
+        int[] indices = RouletteText.formIndices(config.configForms);
+        for (int n = 0; n < config.configForms.size(); n++) {
+            ConfigForms form = config.configForms.get(n);
+            if (form == null) {
+                continue;
+            }
             ConfigForm.Type type = ConfigForm.type(form);
-            String title = form.title == null ? "" : form.title;
+            String title = text.formTitle(config, indices[n], form);
             switch (type) {
                 case CHECKBOX: {
                     Row r = row(form, type, -1, left + 2, rowY, left + PANEL_W - 2, rowY + 13);
@@ -353,6 +404,9 @@ public class AnimationRouletteScreen extends GuiScreen {
                     }
                     rowY += 12;
                     List<String> labels = ConfigForm.labels(form);
+                    for (int i = 0; i < labels.size(); i++) {
+                        labels.set(i, text.formLabel(config, indices[n], i, labels.get(i)));
+                    }
                     int widest = 0;
                     for (String label : labels) {
                         widest = Math.max(widest, fontRendererObj.getStringWidth(label) + 14);
@@ -414,11 +468,17 @@ public class AnimationRouletteScreen extends GuiScreen {
                 top + PANEL_H - 10,
                 0x909090);
         }
-        if (hovered != null && hovered.form.description != null && !hovered.form.description.isEmpty()) {
-            @SuppressWarnings("unchecked")
-            List<String> tip = fontRendererObj.listFormattedStringToWidth(hovered.form.description, 200);
-            drawHoveringText(tip, mouseX, mouseY, fontRendererObj);
+        if (hovered != null) {
+            int f = config.configForms.indexOf(hovered.form);
+            String desc = text.formDescription(config, f < 0 ? -1 : indices[f], hovered.form);
+            if (!desc.isEmpty()) {
+                @SuppressWarnings("unchecked")
+                List<String> tip = fontRendererObj.listFormattedStringToWidth(desc, 200);
+                drawHoveringText(tip, mouseX, mouseY, fontRendererObj);
+                return true;
+            }
         }
+        return false;
     }
 
     private static Row row(ConfigForms form, ConfigForm.Type type, int label, int l, int t, int r, int b) {
@@ -501,16 +561,24 @@ public class AnimationRouletteScreen extends GuiScreen {
         }
         if (selected >= 0) {
             click();
-            LocalEmotes.INSTANCE.apply(menu.click(selected));
+            RouletteMenu.Action action = menu.click(selected);
+            if (action.type == RouletteMenu.Action.Type.PLAY && mc.thePlayer != null
+                && ClientOptions.INSTANCE.printRouletteMessage()) {
+                // upstream clickDefault: the animation's key, as the model names it
+                mc.thePlayer
+                    .addChatMessage(new ChatComponentTranslation("message.futura3d.roulette.play", action.name));
+            }
+            LocalEmotes.INSTANCE.apply(action);
             return;
         }
         if (hoverConfig >= 0) {
             RouletteMenu.Action action = menu.clickConfig(hoverConfig);
             if (action.type == RouletteMenu.Action.Type.CONFIG) {
                 click();
-                config = menu.pageEntries()
-                    .get(hoverConfig).config;
-                configScroll = 0;
+                RouletteMenu.Entry entry = menu.pageEntries()
+                    .get(hoverConfig);
+                openConfig(entry.config);
+                configTitle = text.label(entry);
             }
             return;
         }

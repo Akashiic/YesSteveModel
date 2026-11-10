@@ -201,6 +201,16 @@ public final class PlayerModels {
         return model == null ? null : animated(player, model).animator;
     }
 
+    /** The model a player selected if it is ready to draw; null while it loads (he is drawn with the default). */
+    ClientModel readyModelOf(EntityPlayer player) {
+        return ModelRegistry.INSTANCE.get(keyOf(player));
+    }
+
+    /** The animator the draw uses for a player and model (created on first use; the first-person camera's pose). */
+    PlayerAnimator animatorFor(AbstractClientPlayer player, ClientModel model) {
+        return animated(player, model).animator;
+    }
+
     private Animated animated(AbstractClientPlayer player, ClientModel model) {
         Animated animated = animators.get(player);
         if (animated == null || animated.model != model) {
