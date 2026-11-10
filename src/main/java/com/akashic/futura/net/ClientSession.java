@@ -60,6 +60,9 @@ public final class ClientSession {
 
         /** Version 3: the player who threw the projectile with this entity id. */
         default void projectileOwner(int entityId, UUID owner) {}
+
+        /** Version 4: which models the local player may select (see {@link ModelAccess#apply}). */
+        default void access(boolean reset, boolean listsUnlocked, List<String> keys) {}
     }
 
     private enum Phase {
@@ -260,6 +263,12 @@ public final class ClientSession {
                 if (Protocol.hasProjectileOwners(version)) {
                     Message.ProjectileOwner o = (Message.ProjectileOwner) m;
                     listener.projectileOwner(o.entityId, map(o.owner));
+                }
+                break;
+            case Protocol.S_ACCESS:
+                if (Protocol.hasAccess(version)) {
+                    Message.Access a = (Message.Access) m;
+                    listener.access(a.reset, a.listsUnlocked, a.keys);
                 }
                 break;
             default:

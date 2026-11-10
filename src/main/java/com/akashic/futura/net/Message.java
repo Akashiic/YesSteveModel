@@ -166,6 +166,27 @@ public abstract class Message {
         }
     }
 
+    /** Version 4: which models the player may select ({@link Protocol#S_ACCESS}). */
+    public static final class Access extends Message {
+
+        /** The first message of a list: forget the previous one. */
+        public final boolean reset;
+        /** True: the keys are the selectable models, all others are locked; false: the keys are the locked ones. */
+        public final boolean listsUnlocked;
+        public final List<String> keys;
+
+        public Access(boolean reset, boolean listsUnlocked, List<String> keys) {
+            this.reset = reset;
+            this.listsUnlocked = listsUnlocked;
+            this.keys = Collections.unmodifiableList(new ArrayList<>(keys));
+        }
+
+        @Override
+        public int type() {
+            return Protocol.S_ACCESS;
+        }
+    }
+
     public static final class Emote extends Message {
 
         public final UUID player;

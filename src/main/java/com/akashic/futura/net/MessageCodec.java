@@ -42,6 +42,7 @@ import com.akashic.futura.model.ModelSource;
  * S_ROAMING      uuid, bool reset, u8 n, n × (str name, float value)
  * S_SYNC         uuid, u8 n, n × float
  * S_PROJECTILE_OWNER int entity id, uuid owner (version 3)
+ * S_ACCESS       bool reset, bool lists unlocked, u8 n, n × str key (version 4; n at most MAX_ACCESS_KEYS)
  * C_ROAMING      bool reset, u8 n, n × (str name, float value)
  * C_SYNC         u8 n, n × float
  * </pre>
@@ -167,6 +168,22 @@ public final class MessageCodec {
                 Message.ProjectileOwner o = (Message.ProjectileOwner) m;
                 out.writeInt(o.entityId);
                 writeUuid(o.owner, out);
+                break;
+            }
+            case Protocol.S_ACCESS: {
+                Message.Access a = (Message.Access) m;
+                if (a.keys.size() > Protocol.MAX_ACCESS_KEYS) {
+                    throw new IllegalArgumentException("Too many keys in one access message: " + a.keys.size());
+                }
+                out.writeBoolean(a.reset);
+                out.writeBoolean(a.listsUnlocked);
+                out.writeByte(a.keys.size());
+                for (String key : a.keys) {
+                    if (!Protocol.validKey(key)) {
+                        throw new IllegalArgumentException("Bad model key: " + key);
+                    }
+                    writeString(key, Protocol.MAX_KEY_BYTES, out);
+                }
                 break;
             }
             case Protocol.C_ROAMING: {
@@ -392,6 +409,21 @@ public final class MessageCodec {
             case Protocol.S_PROJECTILE_OWNER: {
                 int entityId = in.readInt();
                 return new Message.ProjectileOwner(entityId, readUuid(in));
+            }
+            case Protocol.S_ACCESS: {
+                boolean reset = readBool(in);
+                boolean listsUnlocked = readBool(in);
+                int n = in.readUnsignedByte();
+                range(n, 0, Protocol.MAX_ACCESS_KEYS, "access key count");
+                List<String> keys = new ArrayList<>(n);
+                for (int i = 0; i < n; i++) {
+                    String key = readString(in, Protocol.MAX_KEY_BYTES);
+                    if (!Protocol.validKey(key)) {
+                        throw new ProtocolException("Bad model key: " + key);
+                    }
+                    keys.add(key);
+                }
+                return new Message.Access(reset, listsUnlocked, keys);
             }
             case Protocol.C_ROAMING: {
                 boolean reset = readBool(in);

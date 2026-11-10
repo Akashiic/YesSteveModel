@@ -46,6 +46,7 @@ public final class ForgeModelServer implements ModelServer.Network, ModelServer.
     private ForgeModelServer(File dir) {
         ModelServer.Settings settings = readSettings(new File(dir, "server.properties"));
         server = new ModelServer(new File(dir, "models"), new File(dir, "players"), this, this, settings);
+        server.setPermissions(ServerPermissions.lazy());
     }
 
     /** The running server's models, or null. */
@@ -105,20 +106,50 @@ public final class ForgeModelServer implements ModelServer.Network, ModelServer.
         s.limits.maxImageSide = (int) number(p, "maxImageSide", s.limits.maxImageSide, 16, 8192);
         s.limits.maxBones = (int) number(p, "maxBones", s.limits.maxBones, 16, 65536);
         s.limits.maxCubes = (int) number(p, "maxCubes", s.limits.maxCubes, 16, 1 << 20);
-        if (!file.isFile()) {
+        s.requirePermission = !"false".equalsIgnoreCase(
+            p.getProperty("requirePermission", "true")
+                .trim());
+        String free = p.getProperty("freeModels");
+        if (free != null) {
+            s.freeModels.clear();
+            for (String f : free.split(",")) {
+                if (!f.trim()
+                    .isEmpty()) {
+                    s.freeModels.add(f.trim());
+                }
+            }
+        }
+        s.permissionCheckTicks = 20 * (int) number(p, "permissionCheckSeconds", s.permissionCheckTicks / 20, 1, 3600);
+        // Missing keys (a file from an older version, or none) are written with their defaults.
+        Properties defaults = new Properties();
+        defaults.setProperty("bytesPerSecondPerPlayer", String.valueOf(s.bytesPerSecond));
+        defaults.setProperty("maxTotalBytes", String.valueOf(s.maxTotalBytes));
+        defaults.setProperty("maxModelBytes", String.valueOf(s.limits.maxModelBytes));
+        defaults.setProperty("maxFileBytes", String.valueOf(s.limits.maxFileBytes));
+        defaults.setProperty("maxFiles", String.valueOf(s.limits.maxFiles));
+        defaults.setProperty("maxImageSide", String.valueOf(s.limits.maxImageSide));
+        defaults.setProperty("maxBones", String.valueOf(s.limits.maxBones));
+        defaults.setProperty("maxCubes", String.valueOf(s.limits.maxCubes));
+        defaults.setProperty("requirePermission", String.valueOf(s.requirePermission));
+        defaults.setProperty("freeModels", String.join(",", s.freeModels));
+        defaults.setProperty("permissionCheckSeconds", String.valueOf(s.permissionCheckTicks / 20));
+        boolean missing = false;
+        for (String key : defaults.stringPropertyNames()) {
+            if (p.getProperty(key) == null) {
+                p.setProperty(key, defaults.getProperty(key));
+                missing = true;
+            }
+        }
+        if (missing) {
             file.getParentFile()
                 .mkdirs();
-            Properties defaults = new Properties();
-            defaults.setProperty("bytesPerSecondPerPlayer", String.valueOf(s.bytesPerSecond));
-            defaults.setProperty("maxTotalBytes", String.valueOf(s.maxTotalBytes));
-            defaults.setProperty("maxModelBytes", String.valueOf(s.limits.maxModelBytes));
-            defaults.setProperty("maxFileBytes", String.valueOf(s.limits.maxFileBytes));
-            defaults.setProperty("maxFiles", String.valueOf(s.limits.maxFiles));
-            defaults.setProperty("maxImageSide", String.valueOf(s.limits.maxImageSide));
-            defaults.setProperty("maxBones", String.valueOf(s.limits.maxBones));
-            defaults.setProperty("maxCubes", String.valueOf(s.limits.maxCubes));
             try (OutputStream out = new FileOutputStream(file)) {
-                defaults.store(out, "3D Futura Engine server: model transfer and limits (a reload reads models again)");
+                p.store(
+                    out,
+                    "3D Futura Engine server: model transfer, limits and permissions (a reload reads models again)."
+                        + " requirePermission: every model needs futura3d.playermodel.<model>"
+                        + " (built-in: futura3d.playermodel.builtin.<folder with . for />), a grant, or to be in"
+                        + " freeModels (builtin:<folder> keys or model names); the player's own skin never needs one.");
             } catch (IOException e) {
                 Futura3D.LOG.warn("Could not write {}", file, e);
             }

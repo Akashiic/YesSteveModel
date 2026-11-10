@@ -443,8 +443,9 @@ nome).
 de todo jogador online vai para todo cliente com o mod, não só para quem o rastreia: assim quem chega perto já sabe).
 Textura que o modelo não tem vira a padrão. Escolha inválida do cliente: o servidor devolve só a ele o estado atual.
 
-A permissão está num método só, `ModelServer.canUse`: restrito precisa de grant. Plugins de permissão do Bukkit ficam
-fora (no Thermos/Crucible a ponte iria ali).
+A permissão está em `ModelServer.canUse`/`canUseBuiltin`. Desde a Etapa 6 (seção "Permissões por modelo" abaixo),
+com `requirePermission=true` (padrão) todo modelo precisa do nó `futura3d.playermodel.<modelo>`, de um grant ou de
+estar em `freeModels`; com `false`, só os restritos precisam (o comportamento desta fase).
 
 | Comando (nível 2) | O que faz |
 |---|---|
@@ -452,6 +453,7 @@ fora (no Thermos/Crucible a ponte iria ali).
 | `/futura3d reload` | relê os modelos sem reiniciar |
 | `/futura3d set <jogador> <modelo\|default\|builtin:<pasta>> [textura]` | escolha do operador, vale mesmo restrito sem grant; jogador offline por nome ou UUID |
 | `/futura3d auth <jogador> add\|remove <modelo>` | grant; reenvia o catálogo (o `locked` muda) |
+| `/futura3d access <jogador>` | o que ele pode escolher, e o nó de cada modelo (Etapa 6) |
 | `/futura3d play <jogador> <animação\|stop>` | emote para quem o vê e para ele |
 
 Modelo por nome da pasta/zip ou pelo começo do id (≥ 8 hex). Taxa por jogador: 1 seleção/s (rajada 4), 2 emotes/s
@@ -1045,6 +1047,65 @@ reais pela rede de produção (Velocity com skins encaminhadas, ou SkinsRestorer
 jogador chegando depois do primeiro desenho (ele aparece com a textura do modelo até ela baixar), o olho que pisca
 (as pálpebras e pupilas do Steve/Alex leem a faixa x56–64/y0–8 da skin, vazia numa skin normal: o piscar não aparece) e
 a capa (não desenhada, como nos outros modelos); o botão novo do seletor (não fotografado).
+
+## Jogadores remotos: chão, voo e caminhada estimados
+
+Relato do teste: os outros jogadores com modelo YSM ficavam flutuando e deslizavam em vez de andar. Causa: no 1.7.10 o
+cliente nunca sabe o `onGround` de outro jogador (o pacote de movimento não o traz, e o `EntityOtherPlayerMP` anda por
+interpolação, sem colisão: o campo fica `false` para sempre). O estado principal caía sempre em `jump`. O mesmo vale
+para `motionX/Z` (ficam com o último pacote de velocidade), `distanceWalkedModified` (nunca cresce) e a habilidade de
+voo (não é enviada). No 1.20 o servidor manda o `onGround`, então o upstream não precisa disso.
+
+* `anim/RemoteMotion` (puro, testado): por tique da entidade, chão = caixa de colisão numa fatia de 0,1 bloco sob os
+  pés (blocos e entidades, `World.getCollidingBoundingBoxes`), com 3 tiques de tolerância ao descer escada (os pés
+  interpolados passam acima do degrau) e saída imediata ao subir (pulo); voo = 8 tiques no ar sem subir nem descer,
+  até pousar ou cair rápido; velocidade e distância andada pelas posições, como o `Entity.moveEntity` faria.
+* `PlayerInputsAdapter` usa a estimativa só para `EntityOtherPlayerMP`; o jogador local continua com os campos reais.
+* Harness `only remote`: um jogador movido como a rede move (`setPositionAndRotation2`, `onGround` falso). Sem a
+  correção o estado é `jump` andando, parado e no ar; com ela, `walk`, `idle` e `fly`.
+
+![Antes: o jogador remoto preso na pose de pulo, flutuando sobre a sombra; depois: andando com os pés no chão](img/etapa6-jogador-remoto.png)
+
+**A checar** no servidor: escadas, lajes, neve e blocos de alturas fracionárias; jogador em pé sobre entidade; voo do
+criativo (subindo/descendo segurando espaço/shift); NPCs do Citizens (também são `EntityOtherPlayerMP` no cliente).
+
+## Permissões por modelo (`futura3d.playermodel.<modelo>`)
+
+Pedido da rede (controle de quem entra para "trollar"): por padrão ninguém escolhe modelo algum; todos aparecem no
+catálogo, visíveis mas bloqueados, e cada nó libera um modelo para um jogador ou grupo. A própria skin (Steve/Alex, a
+"skin do Minecraft") fica sempre liberada.
+
+* Nós: `futura3d.playermodel.<nome do modelo em config/futura3d/models>` (nome do arquivo/pasta sem `.zip`/`.ysm`, em
+  minúsculas; vale também para os de `models/auth`), `futura3d.playermodel.builtin.<pasta com . no lugar de />` para os
+  embutidos (ex.: `futura3d.playermodel.builtin.wine_fox.18_wedding`), `futura3d.playermodel.builtin.*` para todos os
+  embutidos e `futura3d.playermodel.*` para todos. O curinga é testado explicitamente também (para o SuperPerms puro);
+  com LuckPerms grupos e curingas funcionam do jeito dele.
+* Quem decide (`server/ServerPermissions`): no Thermos/Crucible, `Player.hasPermission` do Bukkit por reflexão (o mod
+  continua rodando em Forge puro); o Bukkit dá a operador todo nó que ninguém declarou. Sem Bukkit: num servidor
+  dedicado operador tem todos e os outros nenhum; no singleplayer (e convidados de LAN) todos têm todos.
+* `config/futura3d/server.properties` (as chaves que faltam são escritas com o padrão ao iniciar):
+  `requirePermission=true` (false: só os restritos precisam, como antes), `freeModels=builtin:misc/1_alex,builtin:misc/2_steve`
+  (chaves `builtin:<pasta>` ou nomes de modelo, separados por vírgula), `permissionCheckSeconds=5`.
+* Grants de `/futura3d auth` continuam liberando; `/futura3d set` de operador vale mesmo sem permissão (agora também
+  para embutidos). `/futura3d access <jogador>` lista o que ele pode escolher e o nó de cada modelo.
+* Protocolo 4: `S_ACCESS` (`bool reset, bool lista_liberados, u8 n, n × chave`, até 192 chaves por mensagem): o
+  servidor manda a lista mais curta (as liberadas ou as bloqueadas) depois do catálogo e sempre que muda. As
+  permissões são conferidas de novo a cada `permissionCheckSeconds`: o cliente recebe a mudança sem reconectar, e quem
+  perdeu o nó do modelo que usava volta para a própria skin para todos. Clientes de protocolo 3 recebem o catálogo de
+  novo (o `locked` dos modelos do servidor; os embutidos não ficam marcados neles, mas o servidor recusa a escolha).
+* Cliente: `net/ModelAccess` guarda a lista; `ModelRegistry.isLocked` = `locked` do catálogo ou bloqueado pela lista.
+  O seletor já mostrava cartões bloqueados (cinza, "Bloqueado", botão desabilitado); a dica agora diz que falta
+  permissão do servidor.
+
+![Seletor depois de /deop num servidor dedicado sem Bukkit: modelos visíveis com "Bloqueado" e a dica de permissão](img/etapa6-permissao-seletor.png)
+
+Verificado: `ModelServerTest` (nós, curingas, grant, modelo livre por nome, nó concedido depois libera só aquele
+modelo e só para aquele jogador, nó retirado volta para a própria skin para todos, `/futura3d set` vence),
+`MessageCodecTest`, `ModelAccessTest`, e o harness `connect` contra um servidor dedicado real: como operador nada
+bloqueado, depois de `/deop` o mesmo cliente recebe a lista nova em até 5 s, o Wedding Wine Fox fica bloqueado e o
+pedido é recusado, o Steve (livre) é aceito. **A checar**: no Crucible com LuckPerms (nó dado/retirado a um grupo
+com o jogador online, `lp user ... permission set futura3d.playermodel.<modelo>`), e o custo da checagem com muitos
+jogadores e modelos (uma chamada `hasPermission` por modelo por jogador a cada 5 s, mais as dos curingas).
 
 ## Fases
 

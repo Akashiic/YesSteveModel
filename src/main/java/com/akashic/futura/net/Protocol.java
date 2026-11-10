@@ -15,14 +15,15 @@ public final class Protocol {
      * ({@link #S_ROAMING}, {@link #S_SYNC}, {@link #C_ROAMING}, {@link #C_SYNC}) and the emote and roaming state sent
      * when a player starts tracking another. 3 adds the memory-only flag of catalog entries (models converted from
      * legacy {@code .ysm}); a server offers those models only to version-3 clients, and the owner of thrown
-     * projectiles ({@link #S_PROJECTILE_OWNER}).
+     * projectiles ({@link #S_PROJECTILE_OWNER}). 4 adds {@link #S_ACCESS}: which models, built-in ones included, the
+     * player may select (permission nodes), sent after the catalog and whenever it changes.
      * <p>
      * Negotiation: the client says hello with its version; a server that speaks it (or any version from
      * {@link #MIN_VERSION} up) answers with that version and only sends what it has. A version-1 server answers a
      * version-2 hello with its own hello alone (version 1, no models), and the client says hello again with 1. Either
      * side never sends a message type the negotiated version lacks.
      */
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
     /** The oldest version this side still speaks. */
     public static final int MIN_VERSION = 1;
     /** The first version with roaming variables and {@code ysm.sync}. */
@@ -32,6 +33,8 @@ public final class Protocol {
      * whose files a client keeps in memory only). Older clients are not offered those models.
      */
     public static final int MEMORY_ONLY_VERSION = 3;
+    /** The first version with {@link #S_ACCESS}. */
+    public static final int ACCESS_VERSION = 4;
 
     /** Custom payloads in 1.7.10 cap at 32767 bytes (a client's {@code C17PacketCustomPayload} throws above it). */
     public static final int MAX_PAYLOAD = 32767;
@@ -81,6 +84,8 @@ public final class Protocol {
     public static final int MAX_ROAMING_NAME_BYTES = 32;
     /** Arguments of one {@code ysm.sync} event (upstream {@code MolangEventCatalog.SYNC_MAX_ARGUMENTS}). */
     public static final int MAX_SYNC_ARGS = 16;
+    /** Model keys per {@link #S_ACCESS} message (each at most {@link #MAX_KEY_BYTES}: the message stays small). */
+    public static final int MAX_ACCESS_KEYS = 192;
 
     // ---- Message types ----
 
@@ -101,6 +106,12 @@ public final class Protocol {
      * experience bottles, fireballs): its entity id and the thrower's UUID, sent after its spawn packet.
      */
     public static final int S_PROJECTILE_OWNER = 10;
+    /**
+     * Version 4: which models the player may select. Either the listed keys are the selectable ones and every other
+     * key is locked, or the listed keys are the locked ones (the server sends the shorter list); a long list comes in
+     * several messages, the first with {@code reset}. Choosing no model (the player's own skin) is always allowed.
+     */
+    public static final int S_ACCESS = 11;
 
     // Client to server
     public static final int C_HELLO = 64;
@@ -158,6 +169,11 @@ public final class Protocol {
     /** Whether the version takes {@link #S_PROJECTILE_OWNER}. */
     public static boolean hasProjectileOwners(int version) {
         return version >= MEMORY_ONLY_VERSION;
+    }
+
+    /** Whether the version takes {@link #S_ACCESS}. */
+    public static boolean hasAccess(int version) {
+        return version >= ACCESS_VERSION;
     }
 
     /** Whether the version keeps memory-only models out of the disk cache. */

@@ -340,6 +340,7 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
             contract("disconnect", () -> {
                 ModelSelection.INSTANCE.setHandler(null);
                 ModelRegistry.INSTANCE.clearServerModels();
+                ModelRegistry.INSTANCE.clearAccess();
                 ModelSelection.INSTANCE.clearRemote();
             });
             Futura3D.LOG.info("Left the model server ({})", status());
@@ -517,6 +518,18 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
     @Override
     public void projectileOwner(int entityId, UUID owner) {
         com.akashic.futura.client.EntityReplacements.INSTANCE.setThrower(entityId, owner);
+    }
+
+    @Override
+    public void access(boolean reset, boolean listsUnlocked, List<String> keys) {
+        if (reset) {
+            Futura3D.LOG.info(
+                "Model access from the server: {} {}{}",
+                keys.size(),
+                listsUnlocked ? "selectable models, the others locked" : "locked models, the others selectable",
+                keys.size() >= Protocol.MAX_ACCESS_KEYS ? " (more follow)" : "");
+        }
+        contract("access", () -> ModelRegistry.INSTANCE.access(reset, listsUnlocked, keys));
     }
 
     @Override
