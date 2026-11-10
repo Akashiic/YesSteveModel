@@ -42,14 +42,19 @@ class PlayerStoreTest {
         assertEquals(Arrays.asList("steve"), back.grants);
         assertTrue(back.hasGrant("Steve"));
 
-        // an empty record removes the file
-        back.model = null;
-        back.texture = null;
-        back.grants.clear();
+        assertTrue(back.chosen, "a file that names a model counts as a choice");
+
+        // the own skin chosen (no model) is still a choice: the file stays
         PlayerStore again = new PlayerStore(tmp.toFile());
         again.get(p).model = null;
         again.get(p).texture = null;
         again.get(p).grants.clear();
+        again.save(p);
+        assertTrue(new File(tmp.toFile(), p + ".json").exists());
+        assertTrue(new PlayerStore(tmp.toFile()).get(p).chosen);
+
+        // an empty record (no choice, no grant) removes the file
+        again.get(p).chosen = false;
         again.save(p);
         assertFalse(new File(tmp.toFile(), p + ".json").exists());
     }

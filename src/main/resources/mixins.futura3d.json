@@ -19,7 +19,8 @@
     "RendererLivingEntityMixin",
     "RenderSnowballMixin",
     "RenderFireballMixin",
-    "WorldClientEntityIdMixin"
+    "WorldClientEntityIdMixin",
+    "NetHandlerPlayClientJoinMixin"
   ],
   "server": []
 }

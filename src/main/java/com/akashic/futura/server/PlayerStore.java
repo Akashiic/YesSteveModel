@@ -32,6 +32,12 @@ public final class PlayerStore {
         public String model;
         /** Texture stem, or null for the model's default texture. */
         public String texture;
+        /**
+         * The player (or an operator) chose something, his own skin included (builtin and model both null): the
+         * client's saved local choice then never overrides it. Files from before this field count as chosen when they
+         * name a model.
+         */
+        public boolean chosen;
         /** Set by an operator: the model is used even if restricted and not granted. */
         public boolean forced;
         /** Names of the restricted models the player may select. */
@@ -47,6 +53,9 @@ public final class PlayerStore {
         }
 
         void normalize() {
+            if (builtin != null || model != null) {
+                chosen = true;
+            }
             if (grants == null) {
                 grants = new ArrayList<>();
             }
@@ -60,7 +69,7 @@ public final class PlayerStore {
         }
 
         boolean isEmpty() {
-            return builtin == null && model == null && texture == null && grants.isEmpty();
+            return !chosen && builtin == null && model == null && texture == null && grants.isEmpty();
         }
     }
 
@@ -147,11 +156,12 @@ public final class PlayerStore {
         }
     }
 
-    /** Drops a player's record from memory (on logout); it is read again from disk when needed. */
     /** Records held in memory (leak checks). */
     int cached() {
         return cache.size();
     }
+
+    /** Drops a player's record from memory (on logout); it is read again from disk when needed. */
 
     public void forget(UUID player) {
         cache.remove(player);

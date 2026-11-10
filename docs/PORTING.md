@@ -1112,6 +1112,26 @@ opcionais do modelo (caudas por nível, máscara, asas, armadura...).
 
 **A checar** no servidor: Sparkle e Hu Tao (mesmo tipo de física; os arquivos não foram testados aqui).
 
+## Escolha lembrada pelo servidor e lobby sem o mod
+
+* **A escolha é lembrada** (`config/futura3d/players/<uuid>.json`): modelo, textura e agora também "a própria skin
+  (Steve/Alex)" como escolha explícita (`chosen`). Antes, escolher a própria skin esvaziava o registro (o arquivo era
+  apagado) e no login seguinte o servidor aceitava a escolha local antiga do cliente (por exemplo uma Yae escolhida no
+  singleplayer). Arquivos antigos que nomeiam um modelo contam como escolha. A escolha local do cliente só vale para um
+  jogador que o servidor nunca viu (e se for permitida). Um modelo escolhido continua salvo mesmo se a permissão sair:
+  volta quando ela voltar (até lá, a própria skin). `ModelServerTest.theChoiceIsRememberedAcrossRestartsOwnSkinIncluded`
+  (servidor reiniciado entre as sessões).
+* **Lobby sem o mod:** num servidor remoto que não roda o mod, todos, o jogador local também, ficam com a aparência
+  padrão (a própria skin no Steve/Alex); a escolha local salva espera um servidor com o mod. Escolher um modelo ali só
+  salva a escolha e avisa no chat (`gui.futura3d.picker.no_server`). Verificado com o harness `connect <host> lobby`
+  contra um servidor 1.7.10 vanilla puro: escolha local salva Wedding Wine Fox, desenhado `builtin:misc/2_steve`.
+* **Troca de servidor pelo proxy:** além do reset de handshake do FML (que só vem quando o próximo servidor tem
+  Forge), `NetHandlerPlayClientJoinMixin` trata cada `S01PacketJoinGame` (o Velocity manda um a cada troca) como troca:
+  a sessão de modelos recomeça, e indo para o lobby Paper nenhum modelo ou seleção do forbidden-1 fica.
+
+**A checar** atrás do Velocity: forbidden-1 → lobby → forbidden-1 (no lobby todos Steve/Alex; de volta, cada um com o
+modelo que o servidor lembra). O teste com um Velocity local não rodou aqui.
+
 ## Vazamentos de memória
 
 Revisão pedida depois do teste de produção. Harness `only leak`: 30 jogadores remotos entram na vista com modelo e

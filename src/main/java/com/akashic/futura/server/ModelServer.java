@@ -626,9 +626,10 @@ public final class ModelServer {
         return wanted != null && stems.contains(wanted) ? wanted : null;
     }
 
+    /** Whether the player ever chose (his own skin included): then the client's saved local choice is not used. */
     private boolean hasSavedModel(UUID player) {
         PlayerStore.Record r = store.get(player);
-        return r.builtin != null || r.model != null;
+        return r.chosen || r.builtin != null || r.model != null;
     }
 
     /** A player's own choice from the picker. */
@@ -658,6 +659,7 @@ public final class ModelServer {
             return false;
         }
         r.forced = false;
+        r.chosen = true;
         save(player);
         broadcastState(player);
         return true;
@@ -843,7 +845,8 @@ public final class ModelServer {
             r.model = null;
             r.texture = null;
             r.forced = false;
-            result = "the default model";
+            r.chosen = true;
+            result = "the default look (own skin on Steve/Alex)";
         } else if (model.startsWith(Protocol.BUILTIN)) {
             String folder = model.substring(Protocol.BUILTIN.length());
             if (!BuiltinModels.exists(folder)) {
@@ -853,6 +856,7 @@ public final class ModelServer {
             r.model = null;
             r.texture = checkTexture(BuiltinModels.textures(folder), texture);
             r.forced = true;
+            r.chosen = true;
             result = model;
         } else {
             ServerModel m = snapshot.find(model);
@@ -863,6 +867,7 @@ public final class ModelServer {
             r.model = m.name;
             r.texture = checkTexture(m.textures, texture);
             r.forced = true;
+            r.chosen = true;
             result = m.name;
         }
         save(player);
