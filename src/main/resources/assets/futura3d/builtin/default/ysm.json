@@ -116,6 +116,7 @@
         "parcool": "animations/parcool.animation.json",
         "swem": "animations/swem.animation.json",
         "slashblade": "animations/slashblade.animation.json",
+        "fishing": "animations/fishing.animation.json",
         "tlm": "animations/tlm.animation.json",
         "immersive_melodies": "animations/im.animation.json",
         "irons_spell_books": "animations/iss.animation.json",

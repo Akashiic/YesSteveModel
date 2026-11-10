@@ -153,9 +153,19 @@ public interface PlayerInputs {
         return false;
     }
 
-    /** Elytra flight: not on 1.7.10. */
+    /** Elytra flight: not in vanilla 1.7.10; Et Futurum Requiem's elytra ({@code etfu$isElytraFlying}). */
     default boolean isFallFlying() {
         return false;
+    }
+
+    /** Whether the player wears an elytra ({@code query.has_elytra}). */
+    default boolean hasElytra() {
+        return false;
+    }
+
+    /** The elytra's wing angle about axis 0, 1 or 2 in degrees ({@code ysm.elytra_rot_x/y/z}); 0 without one. */
+    default float elytraRotation(int axis) {
+        return 0;
     }
 
     /** Riptide spin: not on 1.7.10. */

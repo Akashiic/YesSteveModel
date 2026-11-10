@@ -227,9 +227,11 @@ public final class PlayerMolangContext extends AnimationContext {
             case "weather":
                 return num(in.weather());
             case "elytra_rot_x":
+                return num(in.elytraRotation(0));
             case "elytra_rot_y":
+                return num(in.elytraRotation(1));
             case "elytra_rot_z":
-                return MolangValue.ZERO;
+                return num(in.elytraRotation(2));
             case "fps":
                 return num(in.fps());
             case "head_pitch":
@@ -279,6 +281,7 @@ public final class PlayerMolangContext extends AnimationContext {
                     !in.offhand()
                         .isEmpty());
             case "has_elytra":
+                return MolangValue.of(in.hasElytra());
             case "in_shield_block_cooldown":
             case "is_riptide":
             case "first_person_mod_hide":
@@ -390,6 +393,15 @@ public final class PlayerMolangContext extends AnimationContext {
                 String combo = SlashBladeStates.holds(a.inputs) ? SlashBladeStates.combo(a.inputs) : null;
                 return MolangValue.of(combo == null ? "" : combo);
             }
+            case "fishing_animation": {
+                // not upstream: the rod's clip (FishingStates), or ""
+                String clip = a.fishing.phase().animation;
+                return MolangValue.of(clip == null ? "" : clip);
+            }
+            case "fishing_tension":
+                return num(a.fishing.tension());
+            case "fishing_heave":
+                return num(a.fishing.heave());
             case "state_bypass":
                 return num(5);
             case "state_continue":

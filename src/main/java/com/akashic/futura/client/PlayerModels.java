@@ -49,6 +49,8 @@ public final class PlayerModels {
     private final PlayerSnapshot snapshot = new PlayerSnapshot();
     /** States other mods set on players (FuturaModels.setExternalState). */
     private final com.akashic.futura.anim.ExternalStates external = new com.akashic.futura.anim.ExternalStates();
+    /** Arm poses other mods give players for a moment (FuturaModels.setArmPose). */
+    private final com.akashic.futura.anim.ArmPoses armPoses = new com.akashic.futura.anim.ArmPoses();
     private boolean enabled = true;
     /** Development: every player drawn with this model, whatever is selected. */
     private String forced;
@@ -192,6 +194,7 @@ public final class PlayerModels {
             animator.update(snapshot, player.ticksExisted + pt);
             pose = animator.pose();
             bodyYaw = animator.renderBodyYaw();
+            armPoses.apply(player.getUniqueID(), pose, model.loaded.main, System.nanoTime());
         } catch (RuntimeException e) {
             // A broken animation must not take the game down: draw the rest pose and say it once per model.
             if (!model.animationFailed) {
@@ -225,6 +228,11 @@ public final class PlayerModels {
     /** States other mods set on players ({@code FuturaModels.setExternalState}). */
     public com.akashic.futura.anim.ExternalStates externalStates() {
         return external;
+    }
+
+    /** Arm poses other mods give players ({@code FuturaModels.setArmPose}). */
+    public com.akashic.futura.anim.ArmPoses armPoses() {
+        return armPoses;
     }
 
     /** The animator of a player for the model he is drawn with now, created on first use. */
