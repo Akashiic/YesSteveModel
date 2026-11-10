@@ -37,6 +37,8 @@ public final class PlayerSnapshot implements PlayerInputs {
     public int ticksUsingItem, itemUseRemainingTicks;
     public ItemInfo usedItem;
     public boolean fishing;
+    /** States other mods set on this player, or null. */
+    public ExternalStates.Entry external;
 
     public boolean riding;
     public String vehicleId;
@@ -422,5 +424,15 @@ public final class PlayerSnapshot implements PlayerInputs {
     @Override
     public boolean hasCape() {
         return hasCape;
+    }
+
+    @Override
+    public String externalState(String key) {
+        return external == null ? null : external.get(key);
+    }
+
+    @Override
+    public int externalGeneration(String key) {
+        return external == null ? 0 : external.generation(key);
     }
 }

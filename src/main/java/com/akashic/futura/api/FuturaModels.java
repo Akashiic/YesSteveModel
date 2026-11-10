@@ -29,8 +29,28 @@ import cpw.mods.fml.common.FMLCommonHandler;
  */
 public final class FuturaModels {
 
-    /** Raised when a method is added; 1: the methods below; 2: {@link #modelKey}. */
-    public static final int API_VERSION = 2;
+    /**
+     * Raised when a method is added; 1: the methods below; 2: {@link #modelKey}; 3: external states
+     * ({@link #setExternalState}, {@link #externalState}), {@link #hasAnimation} and {@link #playingAnimation}.
+     */
+    public static final int API_VERSION = 3;
+
+    /**
+     * External state (API 3): any value while the player's main hand holds a SlashBlade-style blade. The model then
+     * uses upstream's SlashBlade animations: {@code hold_mainhand:slashblade} and the other {@code :slashblade}
+     * names, and the main state as {@code slashblade:<state>} ({@code slashblade:idle}, {@code slashblade:walk}...)
+     * when the model or the default model has it.
+     */
+    public static final String SLASHBLADE_HELD = "slashblade.held";
+    /**
+     * External state (API 3): the blade's combo state while one runs, as SlashBlade names it ({@code combo_a1},
+     * {@code aerial_rave_a1}, {@code judgement_cut}...; {@code slashblade:} is added when missing). With
+     * {@link #SLASHBLADE_HELD} set, the model plays {@code slashblade:<combo>} once on its swing controller (models
+     * show {@code BladeLocator} and {@code SheathLocator} inside those clips); a combo the model lacks only keeps the
+     * plain swing from playing. Clear it (null) when the chain is over; clear and set it again to restart the same
+     * combo.
+     */
+    public static final String SLASHBLADE_COMBO = "slashblade.combo";
 
     private FuturaModels() {}
 
@@ -136,5 +156,55 @@ public final class FuturaModels {
         if (client()) {
             PlayerModels.setKeepsItemWhileFishing(keeps);
         }
+    }
+
+    /**
+     * API 3: sets ({@code value} non-null) or clears a state the animation runtime reads for the player, standing in
+     * for what upstream reads from other mods (see {@link #SLASHBLADE_HELD} and {@link #SLASHBLADE_COMBO}). Kept per
+     * player UUID until changed or the world is left; call it before the player is drawn (e.g. in
+     * {@code RenderPlayerEvent.Pre}) for it to count in that frame. Setting the value it already has changes nothing;
+     * any change is seen as new, so clearing and setting the same value restarts what it started.
+     *
+     * @param key   at most 64 characters
+     * @param value at most 128 characters, or null to clear
+     * @return false when not accepted (dedicated server, a limit: 16 keys per player)
+     */
+    public static boolean setExternalState(EntityPlayer player, String key, String value) {
+        return player != null && client()
+            && PlayerModels.INSTANCE.externalStates()
+                .set(player.getUniqueID(), key, value);
+    }
+
+    /** API 3: a state set with {@link #setExternalState}, or null. */
+    public static String externalState(EntityPlayer player, String key) {
+        return player == null || key == null || !client() ? null
+            : PlayerModels.INSTANCE.externalStates()
+                .get(player.getUniqueID(), key);
+    }
+
+    /**
+     * API 3: whether the model the player is drawn with has an animation of that name, its own or the default
+     * model's (which every model falls back to), e.g. {@code slashblade:combo_a1}.
+     */
+    public static boolean hasAnimation(EntityPlayer player, String animation) {
+        if (player == null || animation == null || !client()) {
+            return false;
+        }
+        com.akashic.futura.client.ClientModel model = PlayerModels.INSTANCE.modelOf(player);
+        return model != null && model.animations.library.get(animation) != null;
+    }
+
+    /**
+     * API 3: the clip a controller of the player's model plays now ({@code player.main}, {@code player.swing},
+     * {@code player.hold_mainhand}, {@code player.cap}...), or null. For checks and tests; the answer is the last
+     * frame's.
+     */
+    public static String playingAnimation(EntityPlayer player, String controller) {
+        if (!(player instanceof net.minecraft.client.entity.AbstractClientPlayer) || controller == null || !client()) {
+            return null;
+        }
+        com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE
+            .animator((net.minecraft.client.entity.AbstractClientPlayer) player);
+        return a == null ? null : a.playing(controller);
     }
 }

@@ -5,7 +5,8 @@
  * OffhandPredicate, SwingPredicate, UsePredicate, PassengerPredicate, CapPredicate, ParallelPredicate,
  * ArmorPredicate, IAnimationPredicate.playCompatAnimation), Apache License 2.0.
  * Changes: Minecraft reads go through PlayerInputs; mod compat controllers and predicates (ParCool, Carry On, TaCZ,
- * Superb Warfare, SlashBlade, Iron's Spells, Create, SWEM) and the GUI-only controllers are not ported; the
+ * Superb Warfare, Iron's Spells, Create, SWEM) and the GUI-only controllers are not ported (SlashBlade is, in
+ * SlashBladeStates, fed by external states); the
  * pre_/post_ controllers that only exist when a model declares them in files are Tier 2.
  */
 package com.akashic.futura.anim;
@@ -108,7 +109,11 @@ public final class PlayerControllers {
             return PlayState.STOP;
         }
         String state = MainStates.select(a.inputs, a.limbSwingAmount, false);
-        c.setAnimation(state, MainStates.loop(state));
+        LoopType loop = MainStates.loop(state);
+        if (SlashBladeStates.holds(a.inputs)) {
+            state = SlashBladeStates.mainState(state, a.model.library); // upstream SlashBladeCompat.playMainAnimation
+        }
+        c.setAnimation(state, loop);
         return PlayState.CONTINUE;
     }
 
@@ -160,6 +165,23 @@ public final class PlayerControllers {
     /** {@code SwingPredicate}: restarts on the first tick of each swing, then plays to its end. */
     static PlayState swing(PlayerAnimator a, CodedController c) {
         PlayerInputs in = a.inputs;
+        // SlashBlade: the combo state plays once, whatever the swing; while one runs the plain swing does not
+        // (upstream also reloads a finished clip each frame; here a combo restarts only when its generation changes,
+        // since one combo state name covers the whole chain and outlasts the clip)
+        if (!in.isSleeping() && SlashBladeStates.holds(in)) {
+            String combo = SlashBladeStates.combo(in);
+            if (combo != null) {
+                int generation = in.externalGeneration(SlashBladeStates.COMBO);
+                if (generation != a.comboGeneration) {
+                    a.comboGeneration = generation;
+                    c.indicateReload();
+                }
+                if (a.model.library.get(combo) != null) {
+                    return playCompat(a, c, combo, LoopType.PLAY_ONCE);
+                }
+                return PlayState.CONTINUE;
+            }
+        }
         if (in.isSwinging() && !in.isSleeping()) {
             if (in.swingTime() == 0 && a.setEntityTickState(PlayerAnimator.TICK_SWING)) {
                 c.indicateReload();
