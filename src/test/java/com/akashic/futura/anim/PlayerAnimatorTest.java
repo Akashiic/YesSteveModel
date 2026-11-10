@@ -166,6 +166,7 @@ class PlayerAnimatorTest {
                 "player.hold_mainhand",
                 "player.swing",
                 "player.use",
+                "player.fishing", // ours, not upstream (FishingStates)
                 "player.passenger",
                 "player.cap",
                 "player.parallel_0",

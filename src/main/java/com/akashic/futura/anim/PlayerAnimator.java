@@ -88,6 +88,10 @@ public final class PlayerAnimator {
     // SlashBlade combo (SlashBladeStates): the generation of the combo state last started
     int comboGeneration;
 
+    // the rod (FishingStates): its phase, and the serial of the phase the fishing controller last started
+    final FishingStates.Tracker fishing = new FishingStates.Tracker();
+    int fishingSerial = -1;
+
     // extra animation (upstream CustomPlayerEntity)
     boolean playingExtra;
     boolean extraDirty;
@@ -481,6 +485,11 @@ public final class PlayerAnimator {
         }
         entityTickStates |= flag;
         return true;
+    }
+
+    /** The rod's phase at the last frame ({@link FishingStates}), for logs, other mods and the harness. */
+    public FishingStates.Phase fishingPhase() {
+        return fishing.phase();
     }
 
     /** The main state of the last frame ({@code walk}, {@code jump}, {@code idle}...), for logs and the harness. */

@@ -325,6 +325,7 @@ responde `false`/`null`. `API_VERSION = 2` (o 2, da fase 4b, acrescenta `modelKe
 | `hasLocator(player, nome)` | o modelo tem um osso do grupo, visível ou escondido (escala 0) |
 | `drewModel(player)`, `locatorInLastDraw(player, nome)` | para quem trata `RenderPlayerEvent.Post`: se o desenho que acabou foi o modelo, e o locator relativo à matriz desse evento (mundo ou inventário). `RenderPlayerEvent.Specials` não dispara para jogador com modelo |
 | `setKeepsItemWhileFishing(Predicate)` | um mod que desenha a própria vara (o Kunftig) mantém o item na mão com a linha fora, no lugar do graveto |
+| `fishingPhase(player)`, `FISHING_STATE`, `FISHING_TENSION` (API 4) | a vara nos modelos: a fase que o modelo toca e os estados que o Kunftig diz (ver "Pesca", abaixo) |
 
 ### Linha de pesca
 
@@ -1195,6 +1196,79 @@ bloqueado, depois de `/deop` o mesmo cliente recebe a lista nova em até 5 s, o 
 pedido é recusado, o Steve (livre) é aceito. **A checar**: no Crucible com LuckPerms (nó dado/retirado a um grupo
 com o jogador online, `lp user ... permission set futura3d.playermodel.<modelo>`), e o custo da checagem com muitos
 jogadores e modelos (uma chamada `hasPermission` por modelo por jogador a cada 5 s, mais as dos curingas).
+
+## Pesca: o pescador acompanha a vara (`player.fishing`)
+
+Não vem do upstream. O YSM só tem `hold_mainhand:fishing` (uma pose parada com a linha fora) e `swing:fishing_rod`, um
+golpe genérico que arma o braço para trás e só arremessa aos 0,37 s, quando a boia já saiu no clique: era o
+"lançamento desincronizado" da vara do AkashicFishing. Agora o ato inteiro de pescar é uma máquina de estados
+(`anim/FishingStates`, Java puro, testado) que toca `fishing:<fase>` num controlador próprio, `player.fishing`, entre
+`use` e `passenger`; um modelo pode trocá-lo por um controlador Bedrock de mesmo nome, ou trazer clipes próprios com
+os mesmos nomes. Todo modelo cai no conjunto do modelo padrão (`default/animations/fishing.animation.json`, CC0, feito
+para o futura3d), que só mexe nos ossos que todo modelo YSM tem.
+
+![As fases no harness (modelo default, outro jogador visto de lado; a vara vanilla e a linha da fase 3c)](img/pesca-fases.png)
+
+| Fase | Clipe | Quem vê | O que o corpo faz |
+|---|---|---|---|
+| `draw` | uma vez, 0,8 s | o cliente: a vara chega à mão | a vara sai para o lado e dá um giro inteiro no punho, a cabeça acompanha |
+| `cast` | uma vez, 0,8 s | o cliente: o golpe com a linha recolhida, ou a boia aparecendo sem golpe (um plugin relançando) | armada rápida por cima do ombro direito com as duas mãos, o chicote aos 0,14 s (quando a boia sai) com o peso indo para o pé da frente, a vara apontando para a água |
+| `wait` | laço, 4 s | o cliente: a linha fora | as duas mãos na vara, a ponta balança devagar, de vez em quando o punho confere a linha; o tronco e a cabeça ficam com o `main` (respirar, andar, agachar) |
+| `bite` | uma vez, 0,7 s | o servidor (`mordida`) | a ponta é puxada para a água e o corpo junto, as sobrancelhas pulam, um tranco de volta, os punhos sobem para a briga |
+| `fight` | laço, 1,6 s | o servidor (`briga`) | inclinado para trás, vara alta; o peixe corre de um lado para o outro (tronco e ponta seguem), dois trancos por volta. A tensão inclina mais, levanta a vara e alarga tudo; perto do limite os braços tremem. Cada Shift (a tecla do minigame) é uma puxada para cima e para trás |
+| `reel` | laço, 0,6 s | o servidor (`recolher`) | a vara alta na direita, a esquerda gira a manivela; a ponta acena a cada volta e desce com a tensão |
+| `catch` | uma vez, 1,5 s | o servidor (`captura`) | agacha para carregar, puxão enorme por cima da cabeça com um pulinho (a cabeça segue o peixe voando), aterrissa, o punho esquerdo sobe duas vezes, a vara descansa baixa |
+| `escape` | uma vez, 1,4 s | o servidor (`escapou`) | a linha afrouxa, o corpo tropeça para trás com a vara subindo, os ombros caem, a vara pende, a cabeça balança |
+| `retrieve` | uma vez, 0,45 s | o cliente: a linha volta sem peixe (o clique, ou a boia sumindo) | um piparote do punho que levanta a ponta |
+
+Como as fases andam:
+
+* **Sincronia do lançamento**: o golpe com a vara começa o `cast` na hora (para o jogador local, o clique; a boia
+  chega uma ida e volta depois e é o mesmo lançamento por até 2 s, `CAST_GRACE_TICKS`). Para os outros, o golpe e a
+  boia chegam juntos: um golpe no mesmo quadro em que a boia aparece é o lançamento (vale a linha de antes do quadro).
+  `swing:fishing_rod` não toca mais com a vara na mão (`FishingStates.claimsSwing`); sem o clipe `fishing:cast`, o
+  antigo volta.
+* **Recolher**: um golpe com a linha fora começa o `retrieve` na hora (a boia some um pouco depois e é o mesmo); na
+  briga, um clique não faz nada (o AkashicFishing trava a linha).
+* **O servidor** (o que só ele sabe) chega por dois estados externos que o Kunftig diz a partir do canal `kunftig:rod`
+  (`FuturaModels.FISHING_STATE`/`FISHING_TENSION`, API 4): `fishing.state` com os nomes do `KunftigRods`
+  (`mordida`, `briga`, `recolher`, `captura`, `parada`) ou `escapou`, e os nomes em inglês; `fishing.tension` de 0 a
+  1. Limpar e pôr de novo recomeça (uma segunda mordida); `parada` no meio da briga volta a esperar. Quem chega perto
+  no meio de uma briga entra direto nela; um estado que toca uma vez não é tocado atrasado.
+* **Clipes que tocam uma vez** passam a vez no fim (transição incluída): para `wait` com a linha fora, senão para
+  `ready` (nada nosso: o `hold`/`main` de sempre). Trocar de item, dormir: `none`.
+* **Transições** por fase (`Phase.transitionSeconds`): 0,03 s na mordida, 0,04 s no lançamento, 0,3 s para a espera.
+* **Molang** (nosso): `ctrl.fishing_animation` (o clipe da fase, ou `''`), `ctrl.fishing_tension` (a tensão, suavizada
+  para um degrau de centésimo não dar tranco) e `ctrl.fishing_heave` (0 a 1, a puxada do Shift, suavizada, só na
+  briga). As expressões dos clipes usam essas três, `q.anim_time` e `q.life_time`.
+* **Shift na briga**: o AkashicFishing usa Shift como tecla do minigame; agachar a cada aperto jogaria o corpo no
+  agachamento fundo do modelo e de volta. Durante a briga o `main` troca `sneaking`/`sneak` por `idle`/`walk`
+  (`FishingStates.braced`) e o Shift vira só a puxada da vara. Os controladores Bedrock dos modelos continuam vendo
+  `ctrl.sneaking`.
+* **API 4** (`api/FuturaModels`): `FISHING_STATE`, `FISHING_TENSION` e `fishingPhase(jogador)` (`none`, `ready`,
+  `draw`, `cast`, `wait`, `bite`, `fight`, `reel`, `catch`, `escape`, `retrieve`).
+
+Os clipes saem de `tools/fishing_animations.py` (`--check` confere): as poses-chave ficam em listas legíveis, com a
+convenção dos ossos e uma conta medida no harness para o ângulo da vara (cerca de `0,45 × −(braço + antebraço) −
+RightHandLocator + 55` graus acima do horizonte). Abrem no Blockbench como qualquer animação Bedrock.
+
+Harness: `only fish` (`dev/RenderHarness.fishingSteps`): um segundo jogador com a vara, visto de lado, a boia presa
+três blocos à frente, cada foto alguns ticks depois do começo da fase (o log diz a fase a cada tick). Testes:
+`FishingStatesTest` (nomes, a máquina de estados inteira com captura, fuga, recolher, relançar, a mordida de novo, o
+golpe que chega com a boia, o armazém recriado, a suavização, o modelo tocando a vara, a tensão e o Shift mexendo na
+pose, todos os modelos caindo no conjunto padrão) e `BuiltinMolangTest`, que compila cada expressão dos clipes.
+
+**A checar** em jogo de verdade (o harness é software e os tempos das fotos andam um ou dois ticks):
+
+* Num servidor com o AkashicFishing, o Kunftig e dois clientes: a mordida, a briga com a tensão e a captura vistas
+  pelo próprio pescador e pelo outro; o lançamento do jogador local com ping alto (a armada dura até a boia chegar).
+* Com a vara 3D do Kunftig na mão: a pose do corpo junto com a animação da vara (as duas tocam em paralelo, sem
+  sincronia quadro a quadro), a linha saindo da ponta nas poses de captura e de puxada.
+* Nos modelos com esqueleto diferente do padrão (os clipes giram `RightHandLocator`; num modelo que segura a vara em
+  outro ângulo, a ponta pode sair mais alta ou mais baixa).
+* Pescando de barco (os clipes de uma vez mexem nas pernas por um instante) e andando durante a briga.
+* A câmera em primeira pessoa segue a altura da cabeça do modelo (`view_locator_camera`, etapa 6): o pulinho da captura
+  e a inclinação da briga a movem uns 0,1 bloco, suavizado. Conferir se incomoda.
 
 ## Fases
 

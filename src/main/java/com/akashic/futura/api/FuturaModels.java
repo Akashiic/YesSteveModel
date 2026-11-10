@@ -31,9 +31,10 @@ public final class FuturaModels {
 
     /**
      * Raised when a method is added; 1: the methods below; 2: {@link #modelKey}; 3: external states
-     * ({@link #setExternalState}, {@link #externalState}), {@link #hasAnimation} and {@link #playingAnimation}.
+     * ({@link #setExternalState}, {@link #externalState}), {@link #hasAnimation} and {@link #playingAnimation}; 4:
+     * the rod ({@link #FISHING_STATE}, {@link #FISHING_TENSION}, {@link #fishingPhase}).
      */
-    public static final int API_VERSION = 3;
+    public static final int API_VERSION = 4;
 
     /**
      * External state (API 3): any value while the player's main hand holds a SlashBlade-style blade. The model then
@@ -51,6 +52,20 @@ public final class FuturaModels {
      * combo.
      */
     public static final String SLASHBLADE_COMBO = "slashblade.combo";
+    /**
+     * External state (API 4): the rod's state as the server knows it, with Kunftig's {@code KunftigRods} names
+     * ({@code mordida}, {@code briga}, {@code recolher}, {@code captura}, {@code parada}) or {@code escapou} (the
+     * fish got away); English names work too ({@code bite}, {@code fight}, {@code reel}, {@code catch},
+     * {@code escape}, {@code idle}). The model plays {@code fishing:<phase>} on its {@code player.fishing}
+     * controller; the draw, the cast, the waiting and the retrieve the client sees on its own. Clear it and set it
+     * again to restart a state (a second bite). See {@code anim/FishingStates}.
+     */
+    public static final String FISHING_STATE = "fishing.state";
+    /**
+     * External state (API 4): the fight's tension, a number from 0 to 1 as text ({@code "0.42"}); the fight leans
+     * further back and the rod bends up with it ({@code ctrl.fishing_tension} in the model's Molang).
+     */
+    public static final String FISHING_TENSION = "fishing.tension";
 
     private FuturaModels() {}
 
@@ -173,6 +188,23 @@ public final class FuturaModels {
         return player != null && client()
             && PlayerModels.INSTANCE.externalStates()
                 .set(player.getUniqueID(), key, value);
+    }
+
+    /**
+     * API 4: what the player's rod is doing as his model plays it: {@code none} (no rod), {@code ready} (in hand, the
+     * line in), {@code draw}, {@code cast}, {@code wait}, {@code bite}, {@code fight}, {@code reel}, {@code catch},
+     * {@code escape} or {@code retrieve}; null when he is not drawn with a model.
+     */
+    public static String fishingPhase(EntityPlayer player) {
+        if (!(player instanceof net.minecraft.client.entity.AbstractClientPlayer) || !client()) {
+            return null;
+        }
+        com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE
+            .animator((net.minecraft.client.entity.AbstractClientPlayer) player);
+        return a == null ? null
+            : a.fishingPhase()
+                .name()
+                .toLowerCase(java.util.Locale.ROOT);
     }
 
     /** API 3: a state set with {@link #setExternalState}, or null. */

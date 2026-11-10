@@ -25,6 +25,7 @@ import com.akashic.futura.format.pojo.animation.LoopType;
  * pre_hold*  hold_offhand (0.1 s)  hold_mainhand (0.1 s)  post_hold*
  * pre_swing*  swing (0 s)  post_swing*
  * pre_use*  use (0.1 s)  post_use*
+ * fishing (per phase; not upstream, see FishingStates)
  * passenger (0.1 s)  cap (0 s)  parallel_* (0 s, additive rotation)  armor_mainhand..head (0 s)
  * </pre>
  *
@@ -37,6 +38,8 @@ public final class PlayerControllers {
 
     public static final String CATEGORY = "player";
     public static final String CAP = CATEGORY + ".cap";
+    /** The rod's controller ({@link FishingStates}); not upstream. */
+    public static final String FISHING = CATEGORY + ".fishing";
 
     private PlayerControllers() {}
 
@@ -60,6 +63,7 @@ public final class PlayerControllers {
         b.multi("pre_use");
         b.hybrid(CATEGORY + ".use", 0.1f, false, c -> use(a, c));
         b.multi("post_use");
+        b.hybrid(FISHING, FishingStates.Phase.WAIT.transitionSeconds, false, c -> fishing(a, c));
         b.hybrid(CATEGORY + ".passenger", 0.1f, false, c -> passenger(a, c));
         b.coded(CAP, 0, false, c -> cap(a, c));
         for (Map.Entry<String, String> e : m.parallel.entrySet()) {
@@ -159,6 +163,10 @@ public final class PlayerControllers {
             return PlayState.STOP;
         }
         String state = MainStates.select(a.inputs, a.limbSwingAmount, false);
+        if (a.fishing.phase()
+            .fighting()) {
+            state = FishingStates.braced(state); // the minigame key is sneak: it heaves the rod, not a crouch
+        }
         LoopType loop = MainStates.loop(state);
         if (SlashBladeStates.holds(a.inputs)) {
             state = SlashBladeStates.mainState(state, a.model.library); // upstream SlashBladeCompat.playMainAnimation
@@ -232,6 +240,11 @@ public final class PlayerControllers {
                 return PlayState.CONTINUE;
             }
         }
+        if (in.isSwinging() && !in.isSleeping()
+            && !in.isSwingingOffhand()
+            && FishingStates.claimsSwing(in, a.model.library)) {
+            return PlayState.STOP; // the rod's own controller casts and reels (player.fishing)
+        }
         if (in.isSwinging() && !in.isSleeping()) {
             if (in.swingTime() == 0 && a.setEntityTickState(PlayerAnimator.TICK_SWING)) {
                 c.indicateReload();
@@ -262,6 +275,26 @@ public final class PlayerControllers {
             return playCompat(a, c, name.isEmpty() ? "use_offhand" : name, LoopType.LOOP);
         }
         return PlayState.STOP;
+    }
+
+    /**
+     * The rod ({@link FishingStates}): one {@code fishing:<phase>} clip at a time, each with its own blend in; a phase
+     * started again restarts its clip. Stops (back to the hold and main controllers) without a rod, between casts, or
+     * when the model and the default model lack the phase's clip.
+     */
+    static PlayState fishing(PlayerAnimator a, CodedController c) {
+        FishingStates.Phase phase = a.fishing.update(a.inputs, a.seekTime, a.model.library);
+        String name = phase.animation;
+        if (name == null || a.model.library.get(name) == null) {
+            return PlayState.STOP;
+        }
+        if (a.fishing.serial() != a.fishingSerial) {
+            a.fishingSerial = a.fishing.serial();
+            c.setBeginningTransitionSeconds(phase.transitionSeconds);
+            c.indicateReload();
+        }
+        c.setAnimation(name, phase.loops ? LoopType.LOOP : LoopType.PLAY_ONCE);
+        return PlayState.CONTINUE;
     }
 
     /** {@code PassengerPredicate}: only {@code passenger$<id>} / {@code passenger#<tag>} names. */

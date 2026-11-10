@@ -390,6 +390,15 @@ public final class PlayerMolangContext extends AnimationContext {
                 String combo = SlashBladeStates.holds(a.inputs) ? SlashBladeStates.combo(a.inputs) : null;
                 return MolangValue.of(combo == null ? "" : combo);
             }
+            case "fishing_animation": {
+                // not upstream: the rod's clip (FishingStates), or ""
+                String clip = a.fishing.phase().animation;
+                return MolangValue.of(clip == null ? "" : clip);
+            }
+            case "fishing_tension":
+                return num(a.fishing.tension());
+            case "fishing_heave":
+                return num(a.fishing.heave());
             case "state_bypass":
                 return num(5);
             case "state_continue":

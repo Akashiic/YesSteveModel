@@ -129,6 +129,7 @@ public final class RenderHarness {
         viewSteps();
         langSteps();
         replacementSteps();
+        fishingSteps();
         skinSteps();
         remoteSteps();
         diagnoseSteps();
@@ -801,6 +802,128 @@ public final class RenderHarness {
         }
     }
 
+    // ---- The rod (anim/FishingStates). Steps "fish-*" ("only fish" runs just these). ----
+
+    /** Ticks into the step at which the shot is taken, or -1 for {@link #SETTLE_TICKS}. */
+    private int settle = -1;
+    /** Runs at tick {@link #fishAt} of the step (the moment a phase starts). */
+    private Runnable fishAction;
+    private int fishAt = -1;
+
+    /**
+     * A second player seen from the side with a fishing rod and the default model, through every phase of the rod:
+     * each shot a few ticks after its phase starts (the moment its clip is about), the bobber held three blocks in
+     * front of him. The fight's states come as Kunftig would set them (external states).
+     */
+    private void fishingSteps() {
+        // the rod comes to the hand: the spin, halfway
+        fishStep("fish-draw", false, null, null, false, () -> fakeHold(new ItemStack(Items.fishing_rod)), 5);
+        // the cast: wind-up, release, follow-through; then the line out and waiting
+        fishStep("fish-cast-windup", false, null, null, false, () -> fake.swingItem(), 2);
+        fishStep("fish-cast-release", false, null, null, false, () -> fake.swingItem(), 4);
+        fishStep("fish-cast-follow", false, null, null, false, () -> {
+            fake.swingItem();
+            fishHook();
+        }, 6);
+        fishStep("fish-wait", true, null, null, false, null, 30);
+        fishStep("fish-bite", true, null, null, false, () -> fishState("mordida", null), 2);
+        fishStep("fish-fight-calm", true, "briga", "0", false, null, 30);
+        fishStep("fish-fight-tense", true, "briga", "1", false, null, 30);
+        fishStep("fish-fight-heave", true, "briga", "0.5", true, null, 30);
+        fishStep("fish-reel", true, "recolher", "0.4", false, null, 30);
+        fishStep("fish-catch-yank", true, "briga", "0.5", false, () -> fishState("captura", null), 8);
+        fishStep("fish-catch-pump", true, "briga", "0.5", false, () -> {
+            fishState("captura", null);
+            replRemove(); // the server reels in: the line comes back
+            fake.fishEntity = null;
+        }, 15);
+        fishStep("fish-escape", true, "briga", "0.7", false, () -> fishState("escapou", null), 10);
+        fishStep("fish-retrieve", true, null, null, false, () -> fake.swingItem(), 3);
+        fishStep("fish-fight-front", true, "briga", "0.6", false, null, 30);
+        step("fish-end", () -> {
+            replRemove();
+            removeFake();
+            Minecraft.getMinecraft().gameSettings.hideGUI = false;
+        });
+    }
+
+    private void fishStep(String name, boolean line, String state, String tension, boolean sneaking, Runnable action,
+        int shotAfter) {
+        int start = 10; // the model loaded, the pose settled
+        step(name, () -> {
+            replRemove();
+            removeFake(); // a new player each time: a new animator, first seen with what he holds
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            boolean front = name.endsWith("-front");
+            fakeItem(
+                false,
+                new ItemStack(name.equals("fish-draw") ? Items.iron_sword : Items.fishing_rod),
+                false,
+                front ? 180 : 90);
+            fake.setSneaking(sneaking);
+            if (line) {
+                fishHook();
+            }
+            fishState(state, tension);
+            fishAction = action;
+            fishAt = action == null ? -1 : start;
+            settle = (action == null ? 0 : start) + shotAfter;
+        });
+    }
+
+    /** The bobber three blocks in front of the second player, held there ({@link #replHold}). */
+    private void fishHook() {
+        Minecraft mc = Minecraft.getMinecraft();
+        double dx = -Math.sin(Math.toRadians(fakeYaw)) * 3;
+        double dz = Math.cos(Math.toRadians(fakeYaw)) * 3;
+        double[] at = { fake.posX + dx, 3.9, fake.posZ + dz, 0, 0 };
+        replEntity = new net.minecraft.entity.projectile.EntityFishHook(mc.theWorld, at[0], at[1], at[2], fake);
+        replPlace = at;
+        replHold();
+        mc.theWorld.addEntityToWorld(REPL_ID, replEntity);
+        fake.fishEntity = (net.minecraft.entity.projectile.EntityFishHook) replEntity;
+    }
+
+    private void fishState(String state, String tension) {
+        if (fake == null) {
+            return;
+        }
+        com.akashic.futura.anim.ExternalStates states = PlayerModels.INSTANCE.externalStates();
+        if (state != null) {
+            states.set(fake.getUniqueID(), com.akashic.futura.anim.FishingStates.STATE, null);
+            states.set(fake.getUniqueID(), com.akashic.futura.anim.FishingStates.STATE, state);
+        }
+        if (tension != null) {
+            states.set(fake.getUniqueID(), com.akashic.futura.anim.FishingStates.TENSION, tension);
+        }
+    }
+
+    private void fakeHold(ItemStack stack) {
+        fake.inventory.setInventorySlotContents(fake.inventory.currentItem, stack);
+    }
+
+    private void fishTick() {
+        if (fake != null && fishAt >= 0 && ticks == fishAt && fishAction != null) {
+            Runnable r = fishAction;
+            fishAction = null;
+            r.run();
+        }
+        if (fake != null && index >= 0
+            && index < names.size()
+            && names.get(index)
+                .startsWith("fish-")) {
+            report(
+                "  t" + ticks
+                    + " phase "
+                    + PlayerModels.INSTANCE.animator(fake)
+                        .fishingPhase()
+                    + " "
+                    + PlayerModels.INSTANCE.animator(fake)
+                        .playing("player.fishing"));
+        }
+    }
+
     // Phase 5a: Bedrock controllers, functions and sounds. Steps "ctrl-*" ("only ctrl" runs just these).
     private void controllerSteps() {
         step("ctrl-default-sword", () -> {
@@ -1370,7 +1493,8 @@ public final class RenderHarness {
         applyKeys();
         itemTick();
         replHold();
-        if (++ticks >= SETTLE_TICKS) {
+        fishTick();
+        if (++ticks >= (settle > 0 ? settle : SETTLE_TICKS)) {
             if (names.get(index)
                 .contains("-copies-")) {
                 measuring = true;
@@ -1466,6 +1590,9 @@ public final class RenderHarness {
         }
         shotPending = false;
         ticks = 0;
+        settle = -1;
+        fishAt = -1;
+        fishAction = null;
         index++;
         if (index >= steps.size()) {
             done = true;
