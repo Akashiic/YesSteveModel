@@ -390,6 +390,23 @@ class MolangLanguageTest {
     }
 
     @Test
+    void aNonFiniteValueIsNotStoredInAVariable() {
+        FakeContext context = new FakeContext();
+        // a spring step in Molang before its constants are set: 0/0, which must not latch as NaN
+        num("v.k = 0; v.p = v.p + 0.01 * (1 - v.p) / v.k;", context);
+        assertFalse(
+            context.variables()
+                .has("p"),
+            "a non-finite result is a missing value");
+        assertEquals(0, num("v.p", context));
+        assertEquals(7, num("v.p ?? 7", context));
+        num("v.k = 0.001; v.p = v.p + 0.01 * (1 - v.p) / v.k;", context);
+        assertEquals(10, num("v.p", context), EPS);
+        num("v.p = 1 / 0;", context);
+        assertEquals(0, num("v.p", context), "an infinity too");
+    }
+
+    @Test
     void failSoft() {
         String[] garbage = { "1 +", ")(", "q.", "a & b", "a | b", "v.x(1)", "t.x(1)", "q.a.b()", "1 = 2", "math.pi = 3",
             "q.x = 1", "#", "{ 1 ", "1 2", "q.x(1,)", "(1)(2)", "v.", "1 ? 2 :", "v.break", "@foo", "q.x[1" };

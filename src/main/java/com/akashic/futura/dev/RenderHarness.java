@@ -131,7 +131,97 @@ public final class RenderHarness {
         replacementSteps();
         skinSteps();
         remoteSteps();
+        diagnoseSteps();
         onlySteps();
+    }
+
+    // A server model from run/client/config/futura3d/models/<name> ("only diag", name in futura3d-harness-model,
+    // default "yae"): bones the animation leaves broken (NaN, infinite or hidden) and the model's variables.
+    private void diagnoseSteps() {
+        step("diag-front", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            MinecraftServer server = MinecraftServer.getServer();
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.force(null);
+            server.getCommandManager()
+                .executeCommand(server, "futura3d set " + mc.thePlayer.getCommandSenderName() + " " + diagModel());
+            view(2, 0);
+            atShot = this::diagnose;
+        });
+        for (int i = 0; i < 4; i++) {
+            step("diag-wait" + i, () -> view(2, 0));
+        }
+        step("diag-later", () -> {
+            view(2, 0);
+            atShot = this::diagnose;
+        });
+        step("diag-face", () -> {
+            view(2, 20);
+            atShot = this::diagnose;
+        });
+        step("diag-walk", () -> {
+            view(2, 0);
+            keys(true, false, false, false);
+            atShot = this::diagnose;
+        });
+        step("diag-turn", () -> {
+            keys(false, false, false, false);
+            view(2, 120);
+            atShot = this::diagnose;
+        });
+        step("diag-end", () -> {
+            keys(false, false, false, false);
+            Minecraft mc = Minecraft.getMinecraft();
+            MinecraftServer server = MinecraftServer.getServer();
+            server.getCommandManager()
+                .executeCommand(server, "futura3d set " + mc.thePlayer.getCommandSenderName() + " default");
+        });
+    }
+
+    private static String diagModel() {
+        File f = new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness-model");
+        try {
+            return new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8)
+                .trim();
+        } catch (java.io.IOException e) {
+            return "yae";
+        }
+    }
+
+    private void diagnose() {
+        Minecraft mc = Minecraft.getMinecraft();
+        com.akashic.futura.client.ClientModel m = PlayerModels.INSTANCE.modelOf(mc.thePlayer);
+        com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE.animator(mc.thePlayer);
+        if (m == null || a == null) {
+            report("diag: no model/animator");
+            return;
+        }
+        report("diag: model " + m.key + " state " + a.mainState());
+        com.akashic.futura.geo.BakedGeometry g = m.loaded.main;
+        float[] v = a.pose().values;
+        StringBuilder bad = new StringBuilder();
+        for (int i = 0; i < g.bones.length && (i + 1) * 9 <= v.length; i++) {
+            boolean broken = false;
+            for (int k = 0; k < 9; k++) {
+                broken |= Float.isNaN(v[i * 9 + k]) || Float.isInfinite(v[i * 9 + k]);
+            }
+            if (broken || a.pose()
+                .hidden(i)) {
+                bad.append(g.bones[i].name)
+                    .append(broken ? "(NaN/inf)" : "(hidden)")
+                    .append(' ');
+            }
+        }
+        report("diag: broken or hidden bones: " + bad);
+        com.akashic.futura.molang.MolangVariables vars = a.variables();
+        StringBuilder vs = new StringBuilder();
+        for (String n : new String[] { "l7_p0", "l7_p0dot", "l7_k1", "l7_k2", "l7_k3", "l8_p0", "l1_p0", "l4_p0" }) {
+            vs.append(n)
+                .append('=')
+                .append(vars.getOrNull(n))
+                .append(' ');
+        }
+        report("diag: variables " + vs);
     }
 
     // Other players as a 1.7.10 client sees them ("only remote"): moved by position updates, onGround never set.

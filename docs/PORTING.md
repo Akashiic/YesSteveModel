@@ -1088,13 +1088,29 @@ existia aqui e nunca ligava (o 1.7.10 não tem pose de nado).
 **A checar** no jogo com o backport alpha.29: nado e rastejar no próprio jogador e nos outros, câmera em primeira
 pessoa durante o nado (o backport baixa a câmera; o nosso `ViewCamera` usa a altura do modelo).
 
-## Angelica e partes faltando nos modelos
+## Franja e outras partes sumindo: NaN preso nas variáveis (não era o Angelica)
 
-Relato: com o Angelica, partes de alguns modelos do servidor (franja e mechas animadas do Sparkle e da Hu Tao) não
-aparecem. Teste: `./gradlew runClient -Pharness -Pangelica` roda o cliente de desenvolvimento com o Angelica 2.2.43 (a
-versão do pack; nunca vai no jar). Com os embutidos de partes translúcidas (`only transl-little transl-wedding`), as
-fotos com e sem Angelica mostram as mesmas partes (as diferenças são a cauda em outra fase do balanço e o céu/nuvens do
-Angelica). A causa nos modelos do servidor **não foi reproduzida**: precisa dos arquivos deles para testar.
+Relato: partes de modelos do servidor (franja e mechas do Sparkle, da Hu Tao e da Yae Miko) não apareciam, e a
+suspeita era o Angelica. Não era: com o Angelica 2.2.43 no cliente de desenvolvimento (`./gradlew runClient -Pharness
+-Pangelica`, nunca no jar) os embutidos translúcidos desenham as mesmas partes com e sem ele.
+
+Causa (reproduzida com a Yae Miko, harness `only diag`, modelo em `run/client/config/futura3d/models/<nome>`): esses
+modelos fazem física de mola em Molang. O `parallel2` define as constantes (`v.L7_K1/K2/K3`...) em quadros de 0 a
+0,42 s, e o `parallel7` integra a cada 0,0101 s dividindo por `v.L7_K2`. Nos primeiros quadros a constante ainda não
+existe: `0/0` dá NaN, o NaN era guardado em `v.L7_P0`/`v.L7_P0dot`, realimentava a si mesmo para sempre, e toda escala
+e rotação que ele move virava 0 (`1 - 0.002*(NaN)` é um resultado não-finito, 0 no canal). Assim sumiam a franja
+(`lh_*`), o peito (`Breast`), os brincos e o que mais dependesse de `L4`/`L7`/`L8`.
+
+Correção (`molang/Nodes.VariableAssign`): um número não-finito atribuído a uma variável a deixa *missing* (lida como 0;
+`v.x ?? 1` dá 1), como o upstream trata um F32 não-finito (typed missing) e como já tratávamos valores vindos do jogo.
+O NaN não fica mais preso: a física começa em 0 e segue normal quando as constantes chegam. Teste:
+`MolangLanguageTest.aNonFiniteValueIsNotStoredInAVariable`. Harness: antes `l7_p0=NaN` e 44 ossos escondidos
+(incluindo `lh_front`, `lh_right_a`...); depois `l7_p0=0` parada, `l8_p0` responde ao andar, e só ficam escondidos os
+opcionais do modelo (caudas por nível, máscara, asas, armadura...).
+
+![Yae Miko antes (sem franja, sem brincos) e depois da correção](img/etapa6-franja-nan.png)
+
+**A checar** no servidor: Sparkle e Hu Tao (mesmo tipo de física; os arquivos não foram testados aqui).
 
 ## Permissões por modelo (`futura3d.playermodel.<modelo>`)
 
