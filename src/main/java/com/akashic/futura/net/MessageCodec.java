@@ -41,6 +41,7 @@ import com.akashic.futura.model.ModelSource;
  * version 2:
  * S_ROAMING      uuid, bool reset, u8 n, n × (str name, float value)
  * S_SYNC         uuid, u8 n, n × float
+ * S_PROJECTILE_OWNER int entity id, uuid owner (version 3)
  * C_ROAMING      bool reset, u8 n, n × (str name, float value)
  * C_SYNC         u8 n, n × float
  * </pre>
@@ -160,6 +161,12 @@ public final class MessageCodec {
                 Message.Sync sync = (Message.Sync) m;
                 writeUuid(sync.player, out);
                 writeFloats(sync.args, out);
+                break;
+            }
+            case Protocol.S_PROJECTILE_OWNER: {
+                Message.ProjectileOwner o = (Message.ProjectileOwner) m;
+                out.writeInt(o.entityId);
+                writeUuid(o.owner, out);
                 break;
             }
             case Protocol.C_ROAMING: {
@@ -381,6 +388,10 @@ public final class MessageCodec {
             case Protocol.S_SYNC: {
                 UUID player = readUuid(in);
                 return new Message.Sync(player, readFloats(in));
+            }
+            case Protocol.S_PROJECTILE_OWNER: {
+                int entityId = in.readInt();
+                return new Message.ProjectileOwner(entityId, readUuid(in));
             }
             case Protocol.C_ROAMING: {
                 boolean reset = readBool(in);

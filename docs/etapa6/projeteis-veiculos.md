@@ -129,11 +129,16 @@ Diferente, de propósito:
   (`adjustPassengerPosition`: `−ridingOffset − myRidingOffset − 0,5`). Só jogadores (os únicos desenhados por nós);
   um mob montado num veículo que ficou trocado depois que o jogador desceu continua na posição vanilla. A sombra e o
   nome do jogador ficam onde o vanilla os põe.
-* **Dono achado no cliente**: os arremessáveis (`EntityThrowable`: bola de neve, ovo, pérola, poção, frasco de
-  experiência), as bolas de fogo, o foguete e o tridente (não existe) **não são trocados**: o cliente 1.7.10 não sabe
-  quem os jogou (o `getThrower()` só funciona no servidor e o pacote de spawn não traz o dono). Trazer isso exige
-  mensagem nova do servidor; fica para quando o protocolo for mexido. Uma flecha cujo atirador estava fora do alcance
-  de rastreio quando ela nasceu também fica vanilla.
+* **Dono dos arremessáveis pelo servidor (protocolo 3)**: o cliente 1.7.10 não sabe quem jogou os arremessáveis
+  (`EntityThrowable`: bola de neve, ovo, pérola, poção, frasco de experiência) nem as bolas de fogo (o `getThrower()`
+  só funciona no servidor e o pacote de spawn não traz o dono). O servidor manda `S_PROJECTILE_OWNER` (id da entidade,
+  UUID de quem jogou) no `PlayerEvent.StartTracking` dela, logo depois do pacote de spawn, só a clientes 3; o cliente
+  guarda até o primeiro desenho (`EntityReplacements.setThrower`) e espera até 5 ticks por ele antes de decidir que
+  fica vanilla. Desenho: `RenderSnowballMixin` (bola de neve, ovo, pérola, poção, frasco) e `RenderFireballMixin`
+  (bola de fogo e a pequena), com a mesma colocação da flecha. O foguete continua vanilla (na 1.7.10 ele não tem dono
+  nem no servidor) e o tridente não existe. Uma flecha cujo atirador estava fora do alcance de rastreio quando ela
+  nasceu também fica vanilla. **A checar**: nenhum modelo embutido tem alvo para esses projéteis; só testado em
+  unidade (codec, o servidor mandando só a clientes 3).
 * **Memória do veículo só neste cliente**: o upstream guarda o modelo do último passageiro na entidade (com NBT) e o
   manda a quem passa a vê-la; aqui cada cliente lembra o último piloto que ele viu, enquanto a entidade existe nele
   (saiu do alcance e voltou, volta vanilla até alguém montar).

@@ -14,7 +14,8 @@ public final class Protocol {
      * any later version can recognise a mismatch. 2 adds roaming variables and {@code ysm.sync} events
      * ({@link #S_ROAMING}, {@link #S_SYNC}, {@link #C_ROAMING}, {@link #C_SYNC}) and the emote and roaming state sent
      * when a player starts tracking another. 3 adds the memory-only flag of catalog entries (models converted from
-     * legacy {@code .ysm}); a server offers those models only to version-3 clients.
+     * legacy {@code .ysm}); a server offers those models only to version-3 clients, and the owner of thrown
+     * projectiles ({@link #S_PROJECTILE_OWNER}).
      * <p>
      * Negotiation: the client says hello with its version; a server that speaks it (or any version from
      * {@link #MIN_VERSION} up) answers with that version and only sends what it has. A version-1 server answers a
@@ -95,6 +96,11 @@ public final class Protocol {
     public static final int S_ROAMING = 8;
     /** Version 2: a player's model ran {@code ysm.sync(...)}. */
     public static final int S_SYNC = 9;
+    /**
+     * Version 3: who threw a projectile the client cannot attribute itself (snowballs, eggs, ender pearls, potions,
+     * experience bottles, fireballs): its entity id and the thrower's UUID, sent after its spawn packet.
+     */
+    public static final int S_PROJECTILE_OWNER = 10;
 
     // Client to server
     public static final int C_HELLO = 64;
@@ -147,6 +153,11 @@ public final class Protocol {
     /** Whether the version has roaming variables and {@code ysm.sync}. */
     public static boolean hasRoaming(int version) {
         return version >= ROAMING_VERSION;
+    }
+
+    /** Whether the version takes {@link #S_PROJECTILE_OWNER}. */
+    public static boolean hasProjectileOwners(int version) {
+        return version >= MEMORY_ONLY_VERSION;
     }
 
     /** Whether the version keeps memory-only models out of the disk cache. */

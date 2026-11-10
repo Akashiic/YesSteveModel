@@ -93,8 +93,24 @@ public final class EntityReplacements {
         return enabled;
     }
 
+    /**
+     * Throwers the server named ({@code S_PROJECTILE_OWNER}, protocol 3) for projectiles the client cannot attribute
+     * itself, by entity id. Entity ids are reused, so an entry lives only until the world changes or the entity is
+     * drawn.
+     */
+    private final Map<Integer, java.util.UUID> throwers = new java.util.HashMap<>();
+
+    /** The server says who threw the projectile with this entity id. */
+    public void setThrower(int entityId, java.util.UUID thrower) {
+        if (throwers.size() > 4096) {
+            throwers.clear();
+        }
+        throwers.put(entityId, thrower);
+    }
+
     /** Forgets every entity (models were freed, or the world changed). */
     public void clear() {
+        throwers.clear();
         for (State state : states.values()) {
             if (state.animator != null) {
                 state.animator.stopSounds();
@@ -117,10 +133,19 @@ public final class EntityReplacements {
 
     // ---- projectiles ----
 
-    /** The player who shot an arrow or cast a hook, as the client knows it, or null. */
-    static EntityPlayer projectileOwner(Entity entity) {
+    /**
+     * The player who shot an arrow or cast a hook, as the client knows it, or who threw any other projectile, as the
+     * server said; null if unknown.
+     */
+    EntityPlayer projectileOwner(Entity entity) {
         Entity owner = entity instanceof EntityArrow ? ((EntityArrow) entity).shootingEntity
             : entity instanceof EntityFishHook ? ((EntityFishHook) entity).field_146042_b : null;
+        if (owner == null) {
+            java.util.UUID thrower = throwers.remove(entity.getEntityId());
+            if (thrower != null && entity.worldObj != null) {
+                owner = entity.worldObj.func_152378_a(thrower);
+            }
+        }
         return owner instanceof EntityPlayer ? (EntityPlayer) owner : null;
     }
 
@@ -137,9 +162,12 @@ public final class EntityReplacements {
         }
         State state = state(entity);
         if (!state.resolved) {
-            // upstream fixes the model when the owner is set (the shot): here, when the client first draws it
-            state.resolved = true;
+            // upstream fixes the model when the owner is set (the shot): here, when the client first draws it. A thrown
+            // projectile's owner comes in a message right after its spawn packet: wait a few ticks for it.
             EntityPlayer owner = projectileOwner(entity);
+            state.resolved = owner != null || entity instanceof EntityArrow
+                || entity instanceof EntityFishHook
+                || entity.ticksExisted > 5;
             if (owner != null) {
                 state.modelKey = PlayerModels.INSTANCE.keyOf(owner);
                 state.shootItemId = itemId(owner.getHeldItem());

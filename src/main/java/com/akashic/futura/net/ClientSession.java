@@ -57,6 +57,9 @@ public final class ClientSession {
 
         /** Version 2: a player's model ran {@code ysm.sync(args)} (the local player's own come back too). */
         default void sync(UUID player, float[] args) {}
+
+        /** Version 3: the player who threw the projectile with this entity id. */
+        default void projectileOwner(int entityId, UUID owner) {}
     }
 
     private enum Phase {
@@ -237,6 +240,12 @@ public final class ClientSession {
                 if (Protocol.hasRoaming(version)) {
                     Message.Sync sync = (Message.Sync) m;
                     listener.sync(map(sync.player), sync.args);
+                }
+                break;
+            case Protocol.S_PROJECTILE_OWNER:
+                if (Protocol.hasProjectileOwners(version)) {
+                    Message.ProjectileOwner o = (Message.ProjectileOwner) m;
+                    listener.projectileOwner(o.entityId, map(o.owner));
                 }
                 break;
             default:

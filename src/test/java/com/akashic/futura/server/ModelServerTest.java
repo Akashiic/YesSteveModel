@@ -694,6 +694,25 @@ class ModelServerTest {
                 .type());
     }
 
+    /** Thrown projectiles' owners go to version-3 clients only (older ones would refuse the type). */
+    @Test
+    void projectileOwnersOnlyToVersionThree() {
+        server.join(a);
+        server.received(a, new Message.ClientHello(2));
+        toNobody.clear();
+        server.projectileTracked(a, 42, b);
+        assertTrue(toNobody.isEmpty(), "a version-2 client gets nothing");
+        UUID c = new UUID(0, 333);
+        server.join(c);
+        server.received(c, new Message.ClientHello(Protocol.VERSION));
+        toNobody.clear();
+        server.projectileTracked(c, 42, b);
+        assertEquals(1, toNobody.size());
+        Message.ProjectileOwner owner = (Message.ProjectileOwner) toNobody.get(0);
+        assertEquals(42, owner.entityId);
+        assertEquals(b, owner.owner);
+    }
+
     private static <T> T assertDoesNotThrow(ThrowingSupplier<T> s) {
         try {
             return s.get();

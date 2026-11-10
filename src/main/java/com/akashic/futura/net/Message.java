@@ -149,6 +149,23 @@ public abstract class Message {
     }
 
     /** A player started an extra animation, or stopped it ({@code name} null). */
+    /** Version 3: the player who threw a projectile ({@link Protocol#S_PROJECTILE_OWNER}). */
+    public static final class ProjectileOwner extends Message {
+
+        public final int entityId;
+        public final UUID owner;
+
+        public ProjectileOwner(int entityId, UUID owner) {
+            this.entityId = entityId;
+            this.owner = owner;
+        }
+
+        @Override
+        public int type() {
+            return Protocol.S_PROJECTILE_OWNER;
+        }
+    }
+
     public static final class Emote extends Message {
 
         public final UUID player;

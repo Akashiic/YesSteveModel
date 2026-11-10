@@ -16,7 +16,9 @@
     "RenderArrowMixin",
     "RenderBoatMixin",
     "RenderMinecartMixin",
-    "RendererLivingEntityMixin"
+    "RendererLivingEntityMixin",
+    "RenderSnowballMixin",
+    "RenderFireballMixin"
   ],
   "server": []
 }

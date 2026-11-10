@@ -586,6 +586,17 @@ public final class ModelServer {
         }
     }
 
+    /**
+     * {@code viewer}'s client starts tracking a projectile {@code thrower} threw (after its spawn packet): tells it
+     * who, for the projectiles a 1.7.10 client cannot attribute itself (version 3).
+     */
+    public void projectileTracked(UUID viewer, int entityId, UUID thrower) {
+        Session s = sessions.get(viewer);
+        if (s != null && s.hello && Protocol.hasProjectileOwners(s.version)) {
+            net.send(viewer, new Message.ProjectileOwner(entityId, thrower));
+        }
+    }
+
     // ---- Commands ----
 
     /** Thrown with a message for the command sender. */

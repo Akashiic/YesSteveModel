@@ -971,12 +971,12 @@ embutidos, estados externos e o SlashBlade no `wine_fox/13_matured` e no `misc/1
 ## Etapa 6: paridade de interpretação e carregador nativo
 
 Sete itens; cada um tem o seu documento em `docs/etapa6/` (mapa do upstream, o que é igual e o que difere de
-propósito, testes, resultados e a lista **A checar**). Testes: 532 (eram 337 no fim da fase 5b).
+propósito, testes, resultados e a lista **A checar**). Testes: 534 (eram 337 no fim da fase 5b).
 
 | # | Item | Documento | Estado |
 |---|---|---|---|
 | 1 | Carregador de `.ysm` legado: v1/v2 em Java, v3 pela biblioteca nativa (Linux x86_64 glibc 2.17+, Windows x64), só em memória, protocolo 3 | [ysm-legado.md](etapa6/ysm-legado.md) | Feito; servidor dedicado e cliente pela rede verificados com um `.ysm` v2; v3 coberto pelo vetor oficial (envelope) e por um modelo sintético (contêiner); **a checar** com um `.ysm` v3 real |
-| 2 | Projéteis e veículos (`files.projectiles`/`vehicles`, o antigo `files.arrow`) | [projeteis-veiculos.md](etapa6/projeteis-veiculos.md) | Feito para flecha, boia, barco, carrinho, porco, cavalo e montarias; projéteis arremessáveis ficam vanilla (o cliente 1.7.10 não sabe quem arremessou; pede uma mensagem nova do servidor) |
+| 2 | Projéteis e veículos (`files.projectiles`/`vehicles`, o antigo `files.arrow`) | [projeteis-veiculos.md](etapa6/projeteis-veiculos.md) | Feito para flecha, boia, barco, carrinho, porco, cavalo e montarias; arremessáveis e bolas de fogo pelo dono que o servidor manda (`S_PROJECTILE_OWNER`, protocolo 3; **a checar** em jogo: nenhum embutido tem alvo para eles) |
 | 3 | Sons Ogg Opus pelo Concentus (BSD, relocado no jar) | [opus.md](etapa6/opus.md) | Feito; decodificação conferida contra o libopus; **a checar** ouvindo num cliente |
 | 4 | Altura da câmera em primeira pessoa pelo `ViewLocator`/`Head` (só no desenho; opção `view_locator_camera`) | [view-locator.md](etapa6/view-locator.md) | Feito; harness |
 | 5 | Nomes traduzidos do `lang/` do modelo na roleta e no seletor (e a mensagem no chat da roleta) | [nomes-traduzidos.md](etapa6/nomes-traduzidos.md) | Feito; harness em zh_CN, en_US e pt_BR |
@@ -986,7 +986,7 @@ propósito, testes, resultados e a lista **A checar**). Testes: 532 (eram 337 no
 Mudanças que tocam o que já existia:
 
 * **Protocolo 3**: o bit 4 (`memoryOnly`) nas flags do `S_MODEL`; modelos `memoryOnly` não são oferecidos a clientes 1
-  e 2, nem os arquivos só deles. O cliente guarda esses arquivos na memória da sessão (`VolatileFileCache`), nunca no
+  e 2, nem os arquivos só deles. Novo `S_PROJECTILE_OWNER` (10: id da entidade, UUID de quem jogou), só a clientes 3. O cliente guarda esses arquivos na memória da sessão (`VolatileFileCache`), nunca no
   `DiskFileCache`.
 * `GeoBaker` lê `poly_mesh` Bedrock (o importador legado escreve um por osso, com `futura3d_cube_faces`); pastas e zips
   no layout 1.x passam a ser lidos no servidor.

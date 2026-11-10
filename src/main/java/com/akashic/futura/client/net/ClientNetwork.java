@@ -469,6 +469,11 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
     }
 
     @Override
+    public void projectileOwner(int entityId, UUID owner) {
+        com.akashic.futura.client.EntityReplacements.INSTANCE.setThrower(entityId, owner);
+    }
+
+    @Override
     public void sync(UUID player, float[] args) {
         AbstractClientPlayer p = player(player);
         PlayerAnimator a = p == null || !PlayerModels.INSTANCE.active() ? null : PlayerModels.INSTANCE.animator(p);

@@ -22,7 +22,7 @@ upstream**, não contra o upstream rodando, e o lado a lado fica como roteiro ab
 
 Além disso, todos os 24 modelos embutidos passam pelos testes que já existiam (carregar, animar 600 quadros corpo e
 braços sem NaN, controladores, funções, sons) e pelos novos (alvos de projétil/veículo animando 180 quadros, partições
-por modelo, ordenação em 8 vistas, idiomas). Testes: 532 ao fim desta etapa.
+por modelo, ordenação em 8 vistas, idiomas). Testes: 534 ao fim desta etapa.
 
 ## Roteiro do lado a lado
 
