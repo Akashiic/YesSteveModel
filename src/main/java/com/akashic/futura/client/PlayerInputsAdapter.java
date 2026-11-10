@@ -38,6 +38,7 @@ import com.akashic.futura.anim.PlayerInputs;
 import com.akashic.futura.anim.PlayerSnapshot;
 import com.akashic.futura.anim.RemoteMotion;
 import com.akashic.futura.anim.SlashBladeStates;
+import com.akashic.futura.anim.SwimState;
 
 /** Fills a {@link PlayerSnapshot} from a 1.7.10 player, once per frame (render thread). */
 final class PlayerInputsAdapter {
@@ -47,6 +48,8 @@ final class PlayerInputsAdapter {
 
     /** Other players' estimated ground, flight and walking (see {@link RemoteMotion}). */
     private static final Map<AbstractClientPlayer, RemoteMotion> REMOTE = new java.util.WeakHashMap<>();
+    /** Each player's swimming pose by our own rule, when Akashic Player Backport is not there. */
+    private static final Map<AbstractClientPlayer, SwimState> SWIM = new java.util.WeakHashMap<>();
 
     /** How far under the feet the ground is looked for (positions arrive in 1/32 block steps). */
     private static final double GROUND_PROBE = 0.1;
@@ -99,6 +102,7 @@ final class PlayerInputsAdapter {
         if (p instanceof EntityOtherPlayerMP) {
             remote(s, p);
         }
+        swimAndCrawl(s, p);
 
         s.mainhand = item(p.getHeldItem());
         s.external = PlayerModels.INSTANCE.externalStates()
@@ -175,6 +179,31 @@ final class PlayerInputsAdapter {
         s.motionZ = m.motionZ();
         s.distanceWalkedModified = m.walked();
         s.distanceWalkedOnStepModified = m.walkedOnStep();
+    }
+
+    /**
+     * The 1.13+ poses: Akashic Player Backport's when it is installed (it also gives the hitbox and movement, and syncs
+     * other players' poses), else swimming by the vanilla rule (sprinting with the eyes under water).
+     */
+    private static void swimAndCrawl(PlayerSnapshot s, AbstractClientPlayer p) {
+        if (PoseBridge.present()) {
+            PoseBridge.Pose pose = PoseBridge.pose(p);
+            s.swimming = pose == PoseBridge.Pose.SWIMMING;
+            s.crawling = pose == PoseBridge.Pose.CRAWLING;
+            return;
+        }
+        SwimState state = SWIM.get(p);
+        if (state == null) {
+            state = new SwimState();
+            SWIM.put(p, state);
+        }
+        s.swimming = state.update(
+            p.isSprinting(),
+            p.isInWater(),
+            p.isInsideOfMaterial(net.minecraft.block.material.Material.water),
+            p.ridingEntity != null,
+            s.flying);
+        s.crawling = false;
     }
 
     /** A collision box (block or entity) in a thin slab under the player's feet. */

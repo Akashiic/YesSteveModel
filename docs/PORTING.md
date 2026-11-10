@@ -1069,6 +1069,33 @@ voo (não é enviada). No 1.20 o servidor manda o `onGround`, então o upstream 
 **A checar** no servidor: escadas, lajes, neve e blocos de alturas fracionárias; jogador em pé sobre entidade; voo do
 criativo (subindo/descendo segurando espaço/shift); NPCs do Citizens (também são `EntityOtherPlayerMP` no cliente).
 
+## Nado (Ctrl na água) e o Akashic Player Backport
+
+Relato do teste: com o modelo YSM, o nado do [Akashic Player Backport](https://github.com/Akashiic/Akashic-Player-Backport)
+(`akashicplayer`) sumiu. O backport decide a pose (nado, rastejar), muda a caixa de colisão e sincroniza a pose com o
+servidor, mas desenha a pose no `ModelBiped`/`rotateCorpse` vanilla, que o modelo substitui. O estado `swim` do YSM
+existia aqui e nunca ligava (o 1.7.10 não tem pose de nado).
+
+* `client/PoseBridge`: com o backport instalado, a pose dele (`PoseController.getControlledPose`, por reflexão: nenhum
+  dos dois mods depende do outro) liga `swim` (pose `SWIMMING`) e o rastejar (`CRAWLING`, os estados `climb`/`climbing`
+  do YSM, que no 1.20 são o rastejar). Vale para os outros jogadores também (o backport sincroniza as poses).
+* Sem o backport: `anim/SwimState` (puro, testado), a regra do 1.13+ (`Player.updateSwimming`, a mesma do
+  `SwimmingDecision` do backport): correndo com os olhos debaixo d'água começa, e dura enquanto corre na água.
+* O corpo não é girado aqui: no upstream o `swim` é animação do modelo (o renderizador do YSM não aplica a inclinação
+  do `PlayerRenderer`).
+* Harness `only swim`: um jogador remoto correndo numa piscina fica em `swim`; parado na água, `swim_stand`.
+
+**A checar** no jogo com o backport alpha.29: nado e rastejar no próprio jogador e nos outros, câmera em primeira
+pessoa durante o nado (o backport baixa a câmera; o nosso `ViewCamera` usa a altura do modelo).
+
+## Angelica e partes faltando nos modelos
+
+Relato: com o Angelica, partes de alguns modelos do servidor (franja e mechas animadas do Sparkle e da Hu Tao) não
+aparecem. Teste: `./gradlew runClient -Pharness -Pangelica` roda o cliente de desenvolvimento com o Angelica 2.2.43 (a
+versão do pack; nunca vai no jar). Com os embutidos de partes translúcidas (`only transl-little transl-wedding`), as
+fotos com e sem Angelica mostram as mesmas partes (as diferenças são a cauda em outra fase do balanço e o céu/nuvens do
+Angelica). A causa nos modelos do servidor **não foi reproduzida**: precisa dos arquivos deles para testar.
+
 ## Permissões por modelo (`futura3d.playermodel.<modelo>`)
 
 Pedido da rede (controle de quem entra para "trollar"): por padrão ninguém escolhe modelo algum; todos aparecem no

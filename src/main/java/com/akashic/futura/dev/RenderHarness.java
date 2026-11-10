@@ -155,6 +155,45 @@ public final class RenderHarness {
             fakeWalk = 0;
             removeFake();
         });
+        // swimming (1.13+): sprinting with the eyes under water, the YSM "swim" state
+        step("swim-remote", () -> {
+            pool(true);
+            fakeItem(false, null, false, 90);
+            look(0, 0, 50);
+            PlayerModels.INSTANCE.use("default");
+            fakeWalk = 3;
+            atShot = () -> report("remote sprinting under water: " + remoteState());
+        });
+        step("swim-stop", () -> {
+            fakeWalk = 4;
+            atShot = () -> report("remote in water, not sprinting: " + remoteState());
+        });
+        step("swim-end", () -> {
+            fakeWalk = 0;
+            removeFake();
+            pool(false);
+        });
+    }
+
+    /** A pool dug 3 blocks deep at the second player's spot (server world, flat ground under y 4), or filled back. */
+    private void pool(boolean water) {
+        MinecraftServer server = MinecraftServer.getServer();
+        if (server == null) {
+            return;
+        }
+        net.minecraft.world.World w = server.worldServerForDimension(0);
+        for (int x = -3; x <= 3; x++) {
+            for (int z = 1; z <= 6; z++) {
+                for (int y = 1; y <= 3; y++) {
+                    w.setBlock(
+                        x,
+                        y,
+                        z,
+                        water ? net.minecraft.init.Blocks.water
+                            : y == 3 ? net.minecraft.init.Blocks.grass : net.minecraft.init.Blocks.dirt);
+                }
+            }
+        }
     }
 
     private String remoteState() {
@@ -1254,7 +1293,10 @@ public final class RenderHarness {
     private EntityOtherPlayerMP fake;
     private float fakeYaw;
     private int fakeHurt;
-    /** The second player moved like a network player: 0 still, 1 walking along x, 2 hovering 2 blocks up. */
+    /**
+     * The second player moved like a network player: 0 still, 1 walking along x, 2 hovering 2 blocks up, 3 sprinting
+     * under water, 4 still under water.
+     */
     private int fakeWalk;
     private boolean fakeDying;
     private ItemStack fakeUse;
@@ -1521,7 +1563,11 @@ public final class RenderHarness {
             fake.rotationYawHead = fake.prevRotationYawHead = fakeYaw;
             fake.renderYawOffset = fake.prevRenderYawOffset = fakeYaw;
             fake.onGround = true;
-            if (fakeWalk > 0) {
+            if (fakeWalk >= 3) {
+                fake.setSprinting(fakeWalk == 3);
+                fake.setPositionAndRotation2(1.5 - 0.03 * ticks, 1.4, 3.5, fakeYaw, 0, 3);
+                fake.onGround = false;
+            } else if (fakeWalk > 0) {
                 // as NetHandlerPlayClient moves him: an interpolation target, and 1.7.10 never sets his ground
                 double x = fakeWalk == 1 ? 2.5 - 0.1 * ticks : 0.5;
                 fake.setPositionAndRotation2(x, fakeWalk == 2 ? 6 : 4, 3.5, fakeYaw, 0, 3);
