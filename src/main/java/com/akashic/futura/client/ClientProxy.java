@@ -25,6 +25,7 @@ public class ClientProxy extends CommonProxy {
         PlayerModels.INSTANCE.load();
         EmoteKeys.register();
         ClientNetwork.register();
+        BackhandOffhand.install();
         if (new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness").isFile()) {
             try {
                 // Development only: the dev package is not in release jars.
