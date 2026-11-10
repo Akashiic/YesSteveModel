@@ -1,0 +1,83 @@
+# Builds the mod (with the tests) on every push to main, on pull requests and on demand, and keeps the newest jar
+# downloadable: as a workflow artifact on every run, and as the "latest" pre-release for pushes to main.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # some built-in models have non-ASCII file names (CLAUDE.md)
+      LANG: C.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the version comes from git describe
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # 8 for Minecraft, 17 for Jabel; the last one runs Gradle
+          java-version: |
+            8
+            17
+            21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        run: ./gradlew build --stacktrace
+
+      - name: Test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: build/reports/tests/test/
+          if-no-files-found: ignore
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: futura3d
+          # the release jar (reobfuscated, natives and licences inside, no dev package)
+          path: |
+            build/libs/futura3d-*.jar
+            !build/libs/*-dev*.jar
+            !build/libs/*-sources.jar
+          if-no-files-found: error
+
+  latest:
+    # the newest jar of main as the "latest" pre-release (replaced on every push)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: futura3d
+          path: dist
+
+      - name: Publish the latest pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/*.jar \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Último build do main" \
+            --notes "Build automático do commit $GITHUB_SHA ($(date -u +%Y-%m-%d)). Jar de release (reobfuscado, com as bibliotecas nativas). Substituído a cada push no main."
