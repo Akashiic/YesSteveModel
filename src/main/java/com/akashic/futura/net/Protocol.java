@@ -13,18 +13,25 @@ public final class Protocol {
      * Protocol version, sent in both hellos. The layout of the two hellos (type byte, then this int) never changes, so
      * any later version can recognise a mismatch. 2 adds roaming variables and {@code ysm.sync} events
      * ({@link #S_ROAMING}, {@link #S_SYNC}, {@link #C_ROAMING}, {@link #C_SYNC}) and the emote and roaming state sent
-     * when a player starts tracking another.
+     * when a player starts tracking another. 3 adds the memory-only flag of catalog entries (models converted from
+     * legacy {@code .ysm}); a server offers those models only to version-3 clients, and the owner of thrown
+     * projectiles ({@link #S_PROJECTILE_OWNER}).
      * <p>
      * Negotiation: the client says hello with its version; a server that speaks it (or any version from
      * {@link #MIN_VERSION} up) answers with that version and only sends what it has. A version-1 server answers a
      * version-2 hello with its own hello alone (version 1, no models), and the client says hello again with 1. Either
      * side never sends a message type the negotiated version lacks.
      */
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
     /** The oldest version this side still speaks. */
     public static final int MIN_VERSION = 1;
     /** The first version with roaming variables and {@code ysm.sync}. */
     public static final int ROAMING_VERSION = 2;
+    /**
+     * The first version that understands {@link CatalogEntry#memoryOnly} (models converted from legacy {@code .ysm},
+     * whose files a client keeps in memory only). Older clients are not offered those models.
+     */
+    public static final int MEMORY_ONLY_VERSION = 3;
 
     /** Custom payloads in 1.7.10 cap at 32767 bytes (a client's {@code C17PacketCustomPayload} throws above it). */
     public static final int MAX_PAYLOAD = 32767;
@@ -89,6 +96,11 @@ public final class Protocol {
     public static final int S_ROAMING = 8;
     /** Version 2: a player's model ran {@code ysm.sync(...)}. */
     public static final int S_SYNC = 9;
+    /**
+     * Version 3: who threw a projectile the client cannot attribute itself (snowballs, eggs, ender pearls, potions,
+     * experience bottles, fireballs): its entity id and the thrower's UUID, sent after its spawn packet.
+     */
+    public static final int S_PROJECTILE_OWNER = 10;
 
     // Client to server
     public static final int C_HELLO = 64;
@@ -141,6 +153,16 @@ public final class Protocol {
     /** Whether the version has roaming variables and {@code ysm.sync}. */
     public static boolean hasRoaming(int version) {
         return version >= ROAMING_VERSION;
+    }
+
+    /** Whether the version takes {@link #S_PROJECTILE_OWNER}. */
+    public static boolean hasProjectileOwners(int version) {
+        return version >= MEMORY_ONLY_VERSION;
+    }
+
+    /** Whether the version keeps memory-only models out of the disk cache. */
+    public static boolean hasMemoryOnly(int version) {
+        return version >= MEMORY_ONLY_VERSION;
     }
 
     /** Whether this side speaks the version. */

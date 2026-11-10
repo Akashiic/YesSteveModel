@@ -172,6 +172,10 @@ public final class PlayerModels {
                 Futura3D.LOG.error("Animation failed for model {}", model.key, e);
             }
         }
+        if (!snapshot.renderingInInventory) {
+            // in a replaced vehicle the player sits at its base (upstream RenderUtil.adjustPassengerPosition)
+            y = EntityReplacements.INSTANCE.passengerY(player, y, pt);
+        }
         thirdPerson.render(
             player,
             model.renderer(skin),
@@ -199,6 +203,16 @@ public final class PlayerModels {
     public PlayerAnimator animator(AbstractClientPlayer player) {
         ClientModel model = modelOf(player);
         return model == null ? null : animated(player, model).animator;
+    }
+
+    /** The model a player selected if it is ready to draw; null while it loads (he is drawn with the default). */
+    ClientModel readyModelOf(EntityPlayer player) {
+        return ModelRegistry.INSTANCE.get(keyOf(player));
+    }
+
+    /** The animator the draw uses for a player and model (created on first use; the first-person camera's pose). */
+    PlayerAnimator animatorFor(AbstractClientPlayer player, ClientModel model) {
+        return animated(player, model).animator;
     }
 
     private Animated animated(AbstractClientPlayer player, ClientModel model) {
@@ -254,6 +268,7 @@ public final class PlayerModels {
             }
         }
         thirdPerson.forgetReleased();
+        EntityReplacements.INSTANCE.clear();
     }
 
     /** Draws the local player's model in its rest pose at the current matrix (feet at the origin), scale applied. */

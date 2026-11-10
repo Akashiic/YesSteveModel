@@ -17,6 +17,7 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void preInit(FMLPreInitializationEvent event) {
         super.preInit(event);
+        ClientOptions.INSTANCE.init(new File(event.getModConfigurationDirectory(), "futura3d/client.properties"));
     }
 
     @Override

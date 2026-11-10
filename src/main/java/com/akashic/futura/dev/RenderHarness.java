@@ -119,12 +119,331 @@ public final class RenderHarness {
         // Models of the level the port targets (1554 cubes) and a stress case (4533 cubes).
         copySteps("wedding", "wine_fox/18_wedding");
         copySteps("sta", "wine_fox/08_sta");
+        translucentSteps("wedding", "wine_fox/18_wedding");
+        translucentSteps("little", "wine_fox/12_little");
         itemSteps();
         pickerSteps();
         serverSteps();
         controllerSteps();
         configSteps();
+        viewSteps();
+        langSteps();
+        replacementSteps();
         onlySteps();
+    }
+
+    // Etapa 6: the first-person camera height from the model (ViewLocator, else Head). Steps "view-*".
+    private void viewSteps() {
+        step("view-vanilla", () -> {
+            viewScene();
+            PlayerModels.INSTANCE.setEnabled(false);
+            keys(false, false, false, false);
+            viewAt();
+            atShot = () -> reportView("vanilla");
+        });
+        step("view-default", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            keys(false, false, false, false);
+            viewAt();
+            atShot = () -> reportView("default standing");
+        });
+        step("view-default-sneak", () -> {
+            keys(false, true, false, false);
+            viewAt();
+            atShot = () -> reportView("default sneaking");
+        });
+        step("view-vanilla-sneak", () -> {
+            PlayerModels.INSTANCE.setEnabled(false);
+            keys(false, true, false, false);
+            viewAt();
+            atShot = () -> reportView("vanilla sneaking");
+        });
+        step("view-momo-small", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("wine_fox/14_momo");
+            keys(false, false, false, false);
+            viewAt();
+            setVariable("player_size", 0.4);
+            atShot = () -> reportView("momo v.player_size=0.4");
+        });
+        step("view-momo-big", () -> {
+            setVariable("player_size", 2.0);
+            viewAt();
+            atShot = () -> reportView("momo v.player_size=2");
+        });
+        step("view-momo-big-third", () -> {
+            Minecraft.getMinecraft().gameSettings.thirdPersonView = 2;
+            atShot = () -> reportView("momo v.player_size=2, third person (vanilla camera)");
+        });
+        step("view-end", () -> {
+            setVariable("player_size", 1.0);
+            PlayerModels.INSTANCE.use("default");
+            keys(false, false, false, false);
+            view(2, 0);
+        });
+    }
+
+    /** A column of coloured wool in front of the spawn, one colour per block of height, to read the eye height. */
+    private void viewScene() {
+        EntityPlayerMP p = serverPlayer(Minecraft.getMinecraft());
+        if (p == null) {
+            return;
+        }
+        for (int y = 4; y < 9; y++) {
+            for (int x = -1; x <= 1; x++) {
+                p.worldObj.setBlock(x, y, 3, Blocks.wool, y - 4 + (x == 0 ? 0 : 8), 3);
+            }
+        }
+    }
+
+    /** First person at the spawn, looking straight south at the column. */
+    private void viewAt() {
+        Minecraft mc = Minecraft.getMinecraft();
+        mc.gameSettings.thirdPersonView = 0;
+        EntityPlayerMP p = serverPlayer(mc);
+        if (p != null) {
+            p.playerNetServerHandler.setPlayerLocation(0.5, 4, 0.5, 0, 0);
+        }
+    }
+
+    private void reportView(String label) {
+        com.akashic.futura.client.ViewCamera c = com.akashic.futura.client.ViewCamera.INSTANCE;
+        report(
+            String.format(
+                Locale.ROOT,
+                "view %s: camera offset %.3f (target %.3f) blocks",
+                label,
+                c.offset(),
+                c.target()));
+    }
+
+    // Etapa 6: the models' own translations in the roulette and the picker. Steps "lang-*".
+    private void langSteps() {
+        step("lang-roulette-zh", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("zh_CN");
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("wine_fox/14_momo");
+            keys(false, false, false, false);
+            view(2, 0);
+            keepScreen = true;
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            mc.displayGuiScreen(new AnimationRouletteScreen(menu));
+        });
+        step("lang-roulette-en", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("en_US");
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            mc.displayGuiScreen(new AnimationRouletteScreen(menu));
+        });
+        step("lang-roulette-sub-en", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            List<RouletteMenu.Entry> entries = menu.pageEntries();
+            for (int i = 0; i < entries.size(); i++) {
+                if (entries.get(i)
+                    .isClassify()) {
+                    report("lang sub-page: " + menu.click(i));
+                    break;
+                }
+            }
+            mc.displayGuiScreen(new AnimationRouletteScreen(menu));
+        });
+        step("lang-roulette-config-pt", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("pt_BR");
+            RouletteMenu menu = LocalEmotes.INSTANCE.menu();
+            menu.reset();
+            AnimationRouletteScreen screen = new AnimationRouletteScreen(menu);
+            mc.displayGuiScreen(screen);
+            com.akashic.futura.model.LoadedModel model = PlayerModels.INSTANCE.model();
+            if (model != null && !model.manifest.properties.extraAnimationButtons.isEmpty()) {
+                screen.openConfig(model.manifest.properties.extraAnimationButtons.get(0));
+            }
+        });
+        step("lang-picker-zh", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("zh_CN");
+            PlayerModels.INSTANCE.force(null);
+            mc.displayGuiScreen(
+                new com.akashic.futura.client.gui.ModelPickerScreen().focus("builtin:wine_fox/14_momo", null));
+        });
+        step("lang-picker-zh-loaded", () -> pointAtCard("builtin:wine_fox/14_momo"));
+        step("lang-picker-pt", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            setLanguage("pt_BR");
+            mc.displayGuiScreen(
+                new com.akashic.futura.client.gui.ModelPickerScreen().focus("builtin:wine_fox/14_momo", null));
+            pointAtCard("builtin:wine_fox/14_momo");
+        });
+        step("lang-end", () -> {
+            keepScreen = false;
+            Minecraft mc = Minecraft.getMinecraft();
+            mc.displayGuiScreen(null);
+            setLanguage("en_US");
+            LocalEmotes.INSTANCE.menu()
+                .reset();
+            PlayerModels.INSTANCE.use("default");
+            view(2, 0);
+        });
+    }
+
+    /**
+     * The game language the model texts are looked up in. Only the setting and the font's Unicode flag change (no
+     * resource reload): the game's own texts stay as they were.
+     */
+    private void setLanguage(String code) {
+        Minecraft mc = Minecraft.getMinecraft();
+        mc.gameSettings.language = code;
+        mc.fontRenderer.setUnicodeFlag(code.startsWith("zh") || code.startsWith("ja") || code.startsWith("ko"));
+        report("language " + code);
+    }
+
+    // ---- Item 2: projectile and vehicle replacements. Steps "repl-*" ("only repl" runs just these). ----
+
+    private static final int REPL_ID = -4243;
+    private net.minecraft.entity.Entity replEntity;
+    /** Where the replaced entity is held every tick (x, y of its bounding box bottom, z, yaw, pitch). */
+    private double[] replPlace;
+
+    /**
+     * A second player with a model, and next to him an arrow he shot, his fishing hook, a boat, a minecart on a rail
+     * and a horse he rides, each drawn with his model's replacement and then as vanilla.
+     */
+    private void replacementSteps() {
+        for (boolean vanilla : new boolean[] { false, true }) {
+            String v = vanilla ? "vanilla-" : "";
+            step("repl-" + v + "arrow", () -> replStep(vanilla, "default", () -> {
+                net.minecraft.entity.projectile.EntityArrow arrow = new net.minecraft.entity.projectile.EntityArrow(
+                    Minecraft.getMinecraft().theWorld,
+                    1.5,
+                    5,
+                    3.5);
+                arrow.shootingEntity = fake;
+                return arrow;
+            }, new double[] { 1.5, 5, 3.5, 90, -20 }, false));
+            step("repl-" + v + "hook", () -> replStep(vanilla, "default", () -> {
+                fake.inventory.setInventorySlotContents(fake.inventory.currentItem, new ItemStack(Items.fishing_rod));
+                return new net.minecraft.entity.projectile.EntityFishHook(
+                    Minecraft.getMinecraft().theWorld,
+                    1.5,
+                    4.2,
+                    2.5,
+                    fake);
+            }, new double[] { 1.5, 4.2, 2.5, 0, 0 }, false));
+            step(
+                "repl-" + v + "boat",
+                () -> replStep(
+                    vanilla,
+                    "default",
+                    () -> {
+                        return new net.minecraft.entity.item.EntityBoat(Minecraft.getMinecraft().theWorld, 0.5, 4, 3.5);
+                    },
+                    new double[] { 0.5, 4, 3.5, 0, 0 },
+                    true));
+            step("repl-" + v + "minecart", () -> replStep(vanilla, "default", () -> {
+                MinecraftServer server = MinecraftServer.getServer();
+                if (server != null) {
+                    // an east-west rail: the cart's yaw follows it
+                    server.worldServers[0].setBlock(0, 4, 3, Blocks.rail, 1, 3);
+                }
+                return new net.minecraft.entity.item.EntityMinecartEmpty(
+                    Minecraft.getMinecraft().theWorld,
+                    0.5,
+                    4,
+                    3.5);
+            }, new double[] { 0.5, 4, 3.5, 0, 0 }, true));
+            step("repl-" + v + "horse", () -> replStep(vanilla, "wine_fox/16_tactics", () -> {
+                net.minecraft.entity.passive.EntityHorse horse = new net.minecraft.entity.passive.EntityHorse(
+                    Minecraft.getMinecraft().theWorld);
+                horse.setHorseSaddled(true);
+                return horse;
+            }, new double[] { 0.5, 4, 3.5, 90, 0 }, true));
+        }
+        step("repl-end", () -> {
+            replRemove();
+            removeFake();
+            MinecraftServer server = MinecraftServer.getServer();
+            if (server != null) {
+                server.worldServers[0].setBlockToAir(0, 4, 3);
+            }
+            com.akashic.futura.client.EntityReplacements.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            Minecraft.getMinecraft().gameSettings.hideGUI = false;
+        });
+    }
+
+    private void replStep(boolean vanilla, String builtin,
+        java.util.function.Supplier<net.minecraft.entity.Entity> make, double[] place, boolean ride) {
+        Minecraft mc = Minecraft.getMinecraft();
+        replRemove();
+        removeFake();
+        com.akashic.futura.client.EntityReplacements.INSTANCE.setEnabled(!vanilla);
+        PlayerModels.INSTANCE.setEnabled(true);
+        PlayerModels.INSTANCE.use(builtin);
+        keys(false, false, false, false);
+        holdUse = false;
+        fakeHurt = 0;
+        fakeDying = false;
+        fakeUse = null;
+        mc.gameSettings.hideGUI = true;
+        fake = new EntityOtherPlayerMP(mc.theWorld, new GameProfile(java.util.UUID.randomUUID(), "futura3d"));
+        fake.setPositionAndRotation(0.5, 4 + fake.yOffset, ride ? 3.5 : 3.0, 90, 0);
+        fakeYaw = 90;
+        mc.theWorld.addEntityToWorld(FAKE_ID, fake);
+        replEntity = make.get();
+        replPlace = place;
+        replHold();
+        mc.theWorld.addEntityToWorld(REPL_ID, replEntity);
+        if (ride) {
+            fake.mountEntity(replEntity);
+        }
+        // a quarter view from the south-east, three blocks away
+        lookFrom(3.0, 1.0, 0, 45, 20);
+        report(
+            "repl " + builtin
+                + " "
+                + net.minecraft.entity.EntityList.getEntityString(replEntity)
+                + " replaced="
+                + (!vanilla && ride ? com.akashic.futura.client.EntityReplacements.INSTANCE.replacesVehicle(replEntity)
+                    : !vanilla));
+    }
+
+    /** Holds the replaced entity in place (no motion, fixed rotation), every tick. */
+    private void replHold() {
+        if (replEntity == null || replPlace == null) {
+            return;
+        }
+        net.minecraft.entity.Entity e = replEntity;
+        double y = replPlace[1] + e.yOffset;
+        e.setPosition(replPlace[0], y, replPlace[2]);
+        e.prevPosX = e.lastTickPosX = replPlace[0];
+        e.prevPosY = e.lastTickPosY = y;
+        e.prevPosZ = e.lastTickPosZ = replPlace[2];
+        e.motionX = e.motionY = e.motionZ = 0;
+        e.rotationYaw = e.prevRotationYaw = (float) replPlace[3];
+        e.rotationPitch = e.prevRotationPitch = (float) replPlace[4];
+        if (e instanceof net.minecraft.entity.EntityLivingBase) {
+            net.minecraft.entity.EntityLivingBase living = (net.minecraft.entity.EntityLivingBase) e;
+            living.renderYawOffset = living.prevRenderYawOffset = (float) replPlace[3];
+            living.rotationYawHead = living.prevRotationYawHead = (float) replPlace[3];
+        }
+    }
+
+    private void replRemove() {
+        if (replEntity != null) {
+            if (fake != null && fake.ridingEntity == replEntity) {
+                fake.mountEntity(null);
+            }
+            Minecraft.getMinecraft().theWorld.removeEntityFromWorld(REPL_ID);
+            replEntity = null;
+            replPlace = null;
+        }
     }
 
     // Phase 5a: Bedrock controllers, functions and sounds. Steps "ctrl-*" ("only ctrl" runs just these).
@@ -194,7 +513,7 @@ public final class RenderHarness {
             atTick5 = () -> {
                 PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer)
                     .playExtra("dooble");
-                reportSounds("momo, dooble started (an Ogg Opus file: skipped)");
+                reportSounds("momo, dooble started (an Ogg Opus file, streamed through CodecOggOpus)");
             };
         });
         step("ctrl-end", () -> {
@@ -578,6 +897,42 @@ public final class RenderHarness {
         }
     }
 
+    // Stage 6: translucent faces sorted back to front ("only transl" runs just these). Each view twice: sorted, and
+    // in the fixed emission order for comparison. Zoomed in (FOV 30) without the GUI.
+    private void translucentSteps(String label, String builtin) {
+        String[] views = { "front", "back", "side", "above" };
+        int[] modes = { 2, 1, 2, 1 };
+        float[] yaws = { 0, 0, 70, 150 };
+        for (int i = 0; i < views.length; i++) {
+            int v = i;
+            for (boolean sorted : new boolean[] { true, false }) {
+                step("transl-" + label + "-" + views[v] + (sorted ? "" : "-unsorted"), () -> {
+                    Minecraft mc = Minecraft.getMinecraft();
+                    PlayerModels.INSTANCE.setEnabled(true);
+                    PlayerModels.INSTANCE.use(builtin);
+                    copies = 0;
+                    keys(false, false, false, false);
+                    mc.gameSettings.hideGUI = true;
+                    mc.gameSettings.fovSetting = 30;
+                    com.akashic.futura.client.render.GeometryRenderer.sortTranslucent = sorted;
+                    view(modes[v], yaws[v]);
+                    if (views[v].equals("above")) {
+                        EntityPlayerMP p = serverPlayer(mc);
+                        if (p != null) {
+                            p.playerNetServerHandler.setPlayerLocation(0.5, 4, 0.5, yaws[v], 50);
+                        }
+                    }
+                });
+            }
+        }
+        step("transl-" + label + "-end", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            com.akashic.futura.client.render.GeometryRenderer.sortTranslucent = true;
+            mc.gameSettings.fovSetting = 70;
+            mc.gameSettings.hideGUI = false;
+        });
+    }
+
     private void step(String name, Runnable action) {
         names.add(name);
         steps.add(action);
@@ -659,6 +1014,7 @@ public final class RenderHarness {
         }
         applyKeys();
         itemTick();
+        replHold();
         if (++ticks >= SETTLE_TICKS) {
             if (names.get(index)
                 .contains("-copies-")) {

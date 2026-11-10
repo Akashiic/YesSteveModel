@@ -173,6 +173,59 @@ class ClientSessionTest {
         assertEquals(2, r.ready.size());
     }
 
+    /**
+     * A memory-only model (a legacy .ysm the server converted) keeps its own files in the session's memory, never in
+     * the disk cache; a file it shares with an ordinary model goes to the disk cache as before. A new catalog without
+     * it drops them from memory.
+     */
+    @Test
+    void keepsMemoryOnlyFilesOutOfTheDiskCache() throws java.io.IOException {
+        MemoryFileCache cache = new MemoryFileCache();
+        Recorder r = new Recorder();
+        ClientSession s = new ClientSession(cache, r, r);
+        s.start();
+        FileRef shared = file("textures/shared.png", random(500, 7));
+        FileRef legacyManifest = file("ysm.json", "{\"spec\":2,\"legacy\":1}".getBytes());
+        FileRef openManifest = file("ysm.json", "{\"spec\":2,\"open\":1}".getBytes());
+        List<FileRef> legacyFiles = Arrays.asList(legacyManifest, shared);
+        CatalogEntry legacy = new CatalogEntry(
+            CatalogEntry.computeId(legacyFiles),
+            "legacy",
+            "",
+            "",
+            new ArrayList<>(),
+            false,
+            false,
+            true,
+            legacyFiles);
+        CatalogEntry open = model("open", openManifest, shared);
+        catalog(s, 1, legacy, open);
+        for (Sha256 h : r.requested()) {
+            sendFile(s, h);
+        }
+        assertTrue(r.events.contains("ready legacy"));
+        assertTrue(r.events.contains("ready open"));
+        assertFalse(cache.files.containsKey(legacyManifest.hash));
+        assertTrue(cache.files.containsKey(shared.hash));
+        assertTrue(cache.files.containsKey(openManifest.hash));
+        assertEquals(1, s.memoryFiles());
+        assertArrayEquals(
+            content.get(legacyManifest.hash),
+            s.files()
+                .read(legacyManifest.hash));
+        assertArrayEquals(
+            content.get(shared.hash),
+            s.files()
+                .read(shared.hash));
+
+        // the next catalog drops the legacy model: its memory goes; if it comes back it is downloaded again
+        catalog(s, 2, open);
+        assertEquals(0, s.memoryFiles());
+        r.sent.clear();
+        catalog(s, 3, legacy, open);
+        assertEquals(java.util.Collections.singletonList(legacyManifest.hash), r.requested());
+    }
+
     @Test
     void requestsAFewFilesAtATime() {
         MemoryFileCache cache = new MemoryFileCache();

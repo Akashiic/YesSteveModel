@@ -1,7 +1,9 @@
 /*
  * Adapted from Yes Steve Model (https://github.com/YesSteveModel/YesSteveModel, branch dev/1.20, commit 15c2c25),
  * src/main/java/com/elfmcys/ysm/format/parser/GeoBuilder.java, Apache License 2.0.
- * Changes: builds plain float arrays instead of protobuf messages; bones ordered parents first; Java 8.
+ * Changes: builds plain float arrays instead of protobuf messages; bones ordered parents first; Java 8; Bedrock
+ * poly_mesh bones (the baked quads of legacy .ysm models, with upstream's inverted-cube rule from YesSteveModel-Native
+ * modules/gfx/src/bake/baked_model.cc ProcessCube).
  */
 package com.akashic.futura.geo;
 
@@ -17,6 +19,7 @@ import com.akashic.futura.format.pojo.model.FaceUv;
 import com.akashic.futura.format.pojo.model.GeoModel;
 import com.akashic.futura.format.pojo.model.Geometry;
 import com.akashic.futura.format.pojo.model.GeometryDescription;
+import com.akashic.futura.format.pojo.model.PolyMesh;
 import com.akashic.futura.format.pojo.model.UvFaces;
 
 /**
@@ -100,6 +103,9 @@ public final class GeoBaker {
                     }
                 }
             }
+            if (src.polyMesh != null) {
+                cubes += bakeMesh(src.polyMesh, texWidth, texHeight, quads, cubeOfQuad, shapes);
+            }
             int p = parentOf[order.get(i)];
             bones[i] = new BakedGeometry.Bone(
                 src.name,
@@ -113,6 +119,111 @@ public final class GeoBaker {
                 toByteArray(shapes));
         }
         return new BakedGeometry(texWidth, texHeight, bones, toIntArray(roots), cubes);
+    }
+
+    /**
+     * Appends the polygons of a mesh, converted to the baked convention (blocks, x negated), grouped into cubes by
+     * {@link PolyMesh#cubeFaces}. A group of six faces whose normals point inward is an inverted shell (upstream's
+     * {@code ProcessCube}): {@link BakedGeometry#SHAPE_NEGATIVE}; six outward faces
+     * {@link BakedGeometry#SHAPE_POSITIVE};
+     * anything else is open.
+     *
+     * @return the number of cubes added
+     */
+    static int bakeMesh(PolyMesh mesh, float texWidth, float texHeight, QuadBuffer out, List<Integer> cubeOfQuad,
+        List<Byte> shapes) throws IOException {
+        if (mesh.positions == null || mesh.polys == null) {
+            return 0;
+        }
+        float uScale = mesh.normalizedUvs ? 1 : 1 / texWidth;
+        float vScale = mesh.normalizedUvs ? 1 : 1 / texHeight;
+        int polys = mesh.polys.length;
+        int[] groups = mesh.cubeFaces;
+        if (groups == null) {
+            groups = new int[polys];
+            java.util.Arrays.fill(groups, 1);
+        }
+        int next = 0;
+        int added = 0;
+        for (int size : groups) {
+            if (size <= 0 || next + size > polys) {
+                throw new IOException("Invalid poly_mesh: cube face counts do not match the polygons");
+            }
+            int start = out.size();
+            for (int k = 0; k < size; k++) {
+                int[][] poly = mesh.polys[next++];
+                if (poly == null || poly.length < 3 || poly.length > 4) {
+                    throw new IOException("Invalid poly_mesh: a polygon needs three or four vertices");
+                }
+                float[] data = new float[BakedGeometry.QUAD_FLOATS];
+                for (int v = 0; v < 4; v++) {
+                    int[] vertex = poly[Math.min(v, poly.length - 1)];
+                    float[] position = entry(mesh.positions, vertex, 0, 3);
+                    float[] uv = entry(mesh.uvs, vertex, 2, 2);
+                    data[v * 5] = -position[0] / 16f;
+                    data[v * 5 + 1] = position[1] / 16f;
+                    data[v * 5 + 2] = position[2] / 16f;
+                    data[v * 5 + 3] = uv[0] * uScale;
+                    data[v * 5 + 4] = uv[1] * vScale;
+                }
+                float[] normal = entry(mesh.normals, poly[0], 1, 3);
+                data[20] = -normal[0];
+                data[21] = normal[1];
+                data[22] = normal[2];
+                out.raw(data);
+                cubeOfQuad.add(shapes.size());
+            }
+            shapes.add(size == 6 ? meshShape(out, start) : BakedGeometry.SHAPE_OPEN);
+            added++;
+        }
+        if (next != polys) {
+            throw new IOException("Invalid poly_mesh: cube face counts do not match the polygons");
+        }
+        return added;
+    }
+
+    private static float[] entry(float[][] table, int[] vertex, int slot, int width) throws IOException {
+        if (table == null || vertex == null
+            || vertex.length < 3
+            || vertex[slot] < 0
+            || vertex[slot] >= table.length
+            || table[vertex[slot]] == null
+            || table[vertex[slot]].length < width) {
+            throw new IOException("Invalid poly_mesh: index out of range");
+        }
+        return table[vertex[slot]];
+    }
+
+    /** Upstream's inverted test: some face's normal points toward the cube's center. */
+    static byte meshShape(QuadBuffer out, int start) {
+        float[] d = out.data;
+        float[][] centers = new float[6][3];
+        float[] cube = new float[3];
+        for (int f = 0; f < 6; f++) {
+            int q = start + f * BakedGeometry.QUAD_FLOATS;
+            for (int v = 0; v < 4; v++) {
+                for (int axis = 0; axis < 3; axis++) {
+                    centers[f][axis] += d[q + v * 5 + axis] * 0.25f;
+                }
+            }
+            for (int axis = 0; axis < 3; axis++) {
+                cube[axis] += centers[f][axis] / 6;
+            }
+        }
+        for (int f = 0; f < 6; f++) {
+            int q = start + f * BakedGeometry.QUAD_FLOATS;
+            float lengthSq = 0;
+            float dot = 0;
+            for (int axis = 0; axis < 3; axis++) {
+                float outward = centers[f][axis] - cube[axis];
+                lengthSq += outward * outward;
+                dot += d[q + 20 + axis] * outward;
+            }
+            if (lengthSq > 1e-12f && dot < 0) {
+                return BakedGeometry.SHAPE_NEGATIVE;
+            }
+        }
+        return BakedGeometry.SHAPE_POSITIVE;
     }
 
     /** Depth-first placement; a parent cycle is broken by treating the bone that closes it as a root. */
@@ -322,10 +433,17 @@ public final class GeoBaker {
     }
 
     /** A growable float array of quads in the {@link BakedGeometry#QUAD_FLOATS} layout. */
-    private static final class QuadBuffer {
+    static final class QuadBuffer {
 
         private float[] data = new float[BakedGeometry.QUAD_FLOATS * 6];
         private int length;
+
+        /** Appends one quad already in the {@link BakedGeometry#QUAD_FLOATS} layout. */
+        void raw(float[] quad) {
+            ensure(BakedGeometry.QUAD_FLOATS);
+            System.arraycopy(quad, 0, data, length, BakedGeometry.QUAD_FLOATS);
+            length += BakedGeometry.QUAD_FLOATS;
+        }
 
         int size() {
             return length;

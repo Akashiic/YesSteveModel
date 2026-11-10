@@ -233,9 +233,25 @@ public final class ForgeModelServer implements ModelServer.Network, ModelServer.
         /** After the spawn packet of the target: what he plays and his roaming variables. */
         @SubscribeEvent
         public void onStartTracking(net.minecraftforge.event.entity.player.PlayerEvent.StartTracking event) {
-            if (current != null && event.entityPlayer instanceof EntityPlayerMP
-                && event.target instanceof EntityPlayerMP) {
+            if (current == null || !(event.entityPlayer instanceof EntityPlayerMP)) {
+                return;
+            }
+            if (event.target instanceof EntityPlayerMP) {
                 current.server.startTracking(event.entityPlayer.getUniqueID(), event.target.getUniqueID());
+                return;
+            }
+            // thrown projectiles: the client cannot see their thrower (arrows and hooks it can)
+            net.minecraft.entity.Entity thrower = null;
+            if (event.target instanceof net.minecraft.entity.projectile.EntityThrowable) {
+                thrower = ((net.minecraft.entity.projectile.EntityThrowable) event.target).getThrower();
+            } else if (event.target instanceof net.minecraft.entity.projectile.EntityFireball) {
+                thrower = ((net.minecraft.entity.projectile.EntityFireball) event.target).shootingEntity;
+            }
+            if (thrower instanceof EntityPlayerMP) {
+                current.server.projectileTracked(
+                    event.entityPlayer.getUniqueID(),
+                    event.target.getEntityId(),
+                    thrower.getUniqueID());
             }
         }
 

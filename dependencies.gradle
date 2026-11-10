@@ -3,6 +3,11 @@
  * The GTNH convention adds Minecraft and Forge. Clients run Java 8, so everything here must be Java 8 bytecode.
  */
 dependencies {
+    // Ogg Opus model sounds: Concentus, a pure-Java port of libopus (BSD-3-Clause, src/main/resources/licenses/concentus).
+    // Java 8 bytecode (class files major 52). Bundled in the release jar and relocated under
+    // com.akashic.futura.shadow (relocateShadowedDependencies), so it cannot clash with another mod's copy.
+    shadowImplementation("io.github.jaredmdobson:concentus:1.0.2")
+
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
 }

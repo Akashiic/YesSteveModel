@@ -10,7 +10,15 @@
     "RenderPlayerMixin",
     "RenderPlayerArmMixin",
     "ItemRendererMixin",
-    "RenderFishMixin"
+    "RenderFishMixin",
+    "EntityRendererMixin",
+    "EntityArrowAccessor",
+    "RenderArrowMixin",
+    "RenderBoatMixin",
+    "RenderMinecartMixin",
+    "RendererLivingEntityMixin",
+    "RenderSnowballMixin",
+    "RenderFireballMixin"
   ],
   "server": []
 }

@@ -481,6 +481,7 @@ public final class TeofHarness {
         report("mixin RenderPlayer arm " + has(RenderPlayer.class, "futura3d"));
         report("mixin ItemRenderer " + has(ItemRenderer.class, "futura3d"));
         report("mixin RenderFish " + has(RenderFish.class, "futura3d"));
+        report("mixin EntityRenderer " + has(net.minecraft.client.renderer.EntityRenderer.class, "futura3d"));
     }
 
     private static String has(Class<?> cls, String part) {

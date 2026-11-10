@@ -8,9 +8,9 @@ Base: Yes Steve Model `dev/1.20`, commit `15c2c25` (2026-11-01). O estudo comple
 | Tema | Decisão |
 |---|---|
 | Java | Cliente Java 8, servidor Java 21, um jar só: tudo em bytecode Java 8 (Jabel) |
-| Formato | Formato aberto primário (ysm.json spec 2 e layout 1.x) com suporte a .ysm legado em memória via biblioteca nativa oficial (Apache-2.0) |
+| Formato | Formato aberto primário (ysm.json spec 2 e layout 1.x); `.ysm` legado lido só em memória: v1/v2 em Java, v3 pelo decodificador oficial do YesSteveModel-Native (Apache-2.0) numa biblioteca enxuta (`native/`, etapa 6) |
 | Molang | Interpretador próprio em Java 8. O do upstream depende do Semaweave (jars binários Java 17, sem fonte nem licença no jar) e do Janino |
-| Desenho | Próprio, em Java: geometria de cada osso em display list, pose aplicada por quadro. Sem o GeckoLib 1.0.4 e sem a parte nativa |
+| Desenho | Próprio, em Java: geometria de cada osso em display list, pose aplicada por quadro; translúcidos ordenados por quad a cada desenho com as regras do renderizador nativo (etapa 6). Sem o GeckoLib 1.0.4 e sem o renderizador nativo |
 | Rede | Canal próprio de plugin message: catálogo, arquivos em fragmentos < 32 KB, cache por hash. Nunca desserialização Java nem Molang vindo do servidor |
 | Gson | O do jogo (2.2.4): os adaptadores que o upstream liga com `@JsonAdapter` são registrados em `format/FormatGson`; nada de Gson embutido |
 | Pacotes | `com.akashic.futura.*`; cada arquivo adaptado diz no cabeçalho de onde veio |
@@ -21,13 +21,13 @@ Base: Yes Steve Model `dev/1.20`, commit `15c2c25` (2026-11-01). O estudo comple
 |---|---|---|---|
 | `format/parser/pojo` (POJOs de ysm.json, geometria, animação, controladores) | 1,4 mil | `format/pojo` | **Portado**; teste lê os 24 modelos embutidos |
 | `format/parser` (montagem) | 2,6 mil | O upstream monta um container protobuf com Molang compilado e buffers nativos; aqui monta direto o modelo em memória | A fazer |
-| resto de format (schema, container, legacy, media) | 5 mil | Container .mxc fica de fora; importador legado e áudio Opus (Concentus) integrados | Integrado |
+| resto de format (schema, container, legacy, media) | 5 mil | Container .mxc fica de fora; importador legado (etapa 6, item 1) e áudio Opus pelo Concentus (item 3) | **Integrado** |
 | `model` (catálogo, carregamento) | 25,2 mil | Vem com ajustes (15 de 171 usam Minecraft) | A fazer |
 | `geckolib3` (controladores, processador, ossos) | 6,3 mil | Lógica vem; desenho reescrito | **Lógica portada** em `anim` (controladores Bedrock, funções e sons: fase 5a) |
 | `expression` (Molang) | 10,7 mil | Gramática (`frontend/MolangSourceParser`) e `math.*` (`MathBuiltins`, `ControlBuiltins`) adaptados em `molang/`; motor novo (interpretador de árvore) | **Interpretador feito**; funções do hospedeiro (`query`, `ysm`, `ctrl`, `fn`) em `anim/PlayerMolangContext` |
 | `client` (render, GUI, controladores do jogador) | 21,4 mil | Lógica dos controladores vem; render e GUI reescritos | A fazer |
 | `network`, `capability`, `mixin`, `event`, `command`, `config` | ~14 mil | Reescritos para a 1.7.10 | **Rede e comandos feitos** na fase 4a (protocolo próprio, não o do upstream) |
-| `natives` | 4,1 mil | Não vem | Fora |
+| `natives` | 4,1 mil | Só o importador legado: `natives/NativeLoader`, `LegacyNative` e a biblioteca enxuta em `native/` (etapa 6) | **Parcial**; renderizador, codecs e o resto não vêm |
 
 ## Fase 1 (prova): resultado
 
@@ -172,10 +172,10 @@ têm os dois lados (como o upstream decide), as translúcidas passam duas vezes 
   e a cabeça de jogador (`Items.skull`), que não foi fotografada.
 * A segunda mão com o Backhand: o encaixe existe, mas o item usa a mesma transformação da mão direita, sem espelhar.
 * ~~A linha da vara de pescar sai da mão do bíped vanilla (`RenderFish`), não do locator~~: feito na fase 3c.
-* Ordem de translúcidos entre si sem ordenação (o upstream ordena de trás para frente por desenho); `force_translucent`
-  e o significado exato de `all_cutout` (o código nativo não está no repositório).
-* As normais das faces de trás que ficam visíveis (casca de contorno, faces de dois lados) não são invertidas como o
-  nativo faz: a luz delas pode sair mais escura.
+* ~~Ordem de translúcidos entre si sem ordenação (o upstream ordena de trás para frente por desenho); `force_translucent`
+  e o significado exato de `all_cutout` (o código nativo não está no repositório).~~: ordenados por quad e partições do nativo na etapa 6 (item 6).
+* ~~As normais das faces de trás que ficam visíveis (casca de contorno, faces de dois lados) não são invertidas como o
+  nativo faz: a luz delas pode sair mais escura.~~: iluminação de dois lados desde a etapa 6 (item 6).
 * A animação `death` é de tocar uma vez: passado 1 s ela volta à pose de repouso; no jogo a entidade some aos 20 ticks,
   mas um mod que segure o jogador morto mais tempo veria isso.
 * Desempenho com Angelica e numa placa de vídeo de verdade.
@@ -267,8 +267,8 @@ lugar do vanilla, um pouco mais fino (é a geometria do modelo) e acompanha o go
 
 * **A checar** em jogo: o `Background` (sem modelo embutido para testar; o desfazer do balanço usa os campos da 1.7.10
   e não inclui o `cameraPitch`), o braço no mapa, a luz do braço sob o sol e no escuro, Angelica.
-* A câmera não se move: no upstream, `ViewLocator` e `AllHead` só servem à compatibilidade com o mod First Person
-  Model (corpo visível em primeira pessoa e altura dos olhos). Na 1.7.10 a câmera fica na altura vanilla.
+* ~~A câmera não se move: no upstream, `ViewLocator` e `AllHead` só servem à compatibilidade com o mod First Person
+  Model (corpo visível em primeira pessoa e altura dos olhos). Na 1.7.10 a câmera fica na altura vanilla.~~: a câmera passa a seguir o `ViewLocator`/`Head` na etapa 6 (item 4).
 * Fase 5: o `fp.arm.misc` e os `fp.arm.parallel_*` declarados em arquivos de controladores do braço (o upstream só os
   cria quando o modelo os declara; entram primeiro na lista de `FirstPersonControllers`).
 
@@ -300,9 +300,9 @@ manda o pedido ao servidor, e cada cliente que recebe o repasse chama
 Ainda não:
 
 * ~~`extra_animation_buttons` com `config_forms`: o painel só lista os formulários~~: editáveis desde a fase 5b.
-* Os rótulos e descrições traduzidos dos arquivos `lang` do modelo (`properties.extra_animation.<chave>`) e a dica com
-  a descrição: aparece o texto do `ysm.json`.
-* Mensagem no chat ao tocar (opção `PRINT_ANIMATION_ROULETTE_MSG`).
+* ~~Os rótulos e descrições traduzidos dos arquivos `lang` do modelo (`properties.extra_animation.<chave>`) e a dica com
+  a descrição: aparece o texto do `ysm.json`.~~: feitos na etapa 6 (item 5).
+* ~~Mensagem no chat ao tocar (opção `PRINT_ANIMATION_ROULETTE_MSG`).~~: `print_animation_roulette_msg`, etapa 6.
 * **A checar** em jogo: a roleta com outras escalas de interface, roda do mouse, modelos com várias páginas e
   subpáginas (`wine_fox/08_sta`).
 
@@ -812,9 +812,9 @@ que monta um jar).
   limitado a 0,5–2 (o OpenAL; o upstream aceita 0,001–1000). Um nome com `:` é um evento de som vanilla, tocado como
   `ISound` que segue o jogador. Limites: 6 sons por jogador e 16 ao todo (o upstream não limita). Param quando o
   jogador some, muda de mundo ou de modelo.
-* **Opus**: o conversor do upstream grava Ogg Opus, e alguns embutidos (`wine_fox/14_momo`: `fly_on`, `sfmb`,
+* ~~**Opus**: o conversor do upstream grava Ogg Opus, e alguns embutidos (`wine_fox/14_momo`: `fly_on`, `sfmb`,
   `dooble`, `owo`) já são Opus; a 1.7.10 só decodifica Vorbis (JOrbis). Esses arquivos são pulados com uma linha no
-  log (`Skipped sound ... Ogg Opus`). Os outros 50 `.ogg` embutidos são Vorbis.
+  log (`Skipped sound ... Ogg Opus`). Os outros 50 `.ogg` embutidos são Vorbis.~~: tocam pelo Concentus desde a etapa 6 (item 3).
 
 ### Resultado
 
@@ -968,6 +968,40 @@ Testes: 337 (24 desta fase: codec e limites do protocolo 2, negociação de vers
 `StartTracking`, cliente 1, rastreador e armazém das variáveis, seam do `ysm.sync`, formulários com os modelos
 embutidos, estados externos e o SlashBlade no `wine_fox/13_matured` e no `misc/1_alex`).
 
+## Etapa 6: paridade de interpretação e carregador nativo
+
+Sete itens; cada um tem o seu documento em `docs/etapa6/` (mapa do upstream, o que é igual e o que difere de
+propósito, testes, resultados e a lista **A checar**). Testes: 534 (eram 337 no fim da fase 5b).
+
+| # | Item | Documento | Estado |
+|---|---|---|---|
+| 1 | Carregador de `.ysm` legado: v1/v2 em Java, v3 pela biblioteca nativa (Linux x86_64 glibc 2.17+, Windows x64), só em memória, protocolo 3 | [ysm-legado.md](etapa6/ysm-legado.md) | Feito; servidor dedicado e cliente pela rede verificados com um `.ysm` v2; v3 coberto pelo vetor oficial (envelope) e por um modelo sintético (contêiner); **a checar** com um `.ysm` v3 real |
+| 2 | Projéteis e veículos (`files.projectiles`/`vehicles`, o antigo `files.arrow`) | [projeteis-veiculos.md](etapa6/projeteis-veiculos.md) | Feito para flecha, boia, barco, carrinho, porco, cavalo e montarias; arremessáveis e bolas de fogo pelo dono que o servidor manda (`S_PROJECTILE_OWNER`, protocolo 3; **a checar** em jogo: nenhum embutido tem alvo para eles) |
+| 3 | Sons Ogg Opus pelo Concentus (BSD, relocado no jar) | [opus.md](etapa6/opus.md) | Feito; decodificação conferida contra o libopus; **a checar** ouvindo num cliente |
+| 4 | Altura da câmera em primeira pessoa pelo `ViewLocator`/`Head` (só no desenho; opção `view_locator_camera`) | [view-locator.md](etapa6/view-locator.md) | Feito; harness |
+| 5 | Nomes traduzidos do `lang/` do modelo na roleta e no seletor (e a mensagem no chat da roleta) | [nomes-traduzidos.md](etapa6/nomes-traduzidos.md) | Feito; harness em zh_CN, en_US e pt_BR |
+| 6 | Partições do renderizador nativo e ordem dos translúcidos de trás para frente por quad | [translucidos.md](etapa6/translucidos.md) | Feito; harness antes/depois |
+| 7 | Validação e comparação com o YSM 1.20 | [paridade.md](etapa6/paridade.md) | Conferido contra o código do upstream; o lado a lado no jogo não pôde rodar aqui (sem cliente 1.20 nem placa de vídeo): roteiro e lista no documento |
+
+Mudanças que tocam o que já existia:
+
+* **Protocolo 3**: o bit 4 (`memoryOnly`) nas flags do `S_MODEL`; modelos `memoryOnly` não são oferecidos a clientes 1
+  e 2, nem os arquivos só deles. Novo `S_PROJECTILE_OWNER` (10: id da entidade, UUID de quem jogou), só a clientes 3. O cliente guarda esses arquivos na memória da sessão (`VolatileFileCache`), nunca no
+  `DiskFileCache`.
+* `GeoBaker` lê `poly_mesh` Bedrock (o importador legado escreve um por osso, com `futura3d_cube_faces`); pastas e zips
+  no layout 1.x passam a ser lidos no servidor.
+* Partições de face: `all_cutout` é o `force_culling` do upstream (antes tratava buracos como opacos), cubo invertido
+  pelo teste geométrico do nativo, UVs arredondadas aos texels como o nativo; translúcidos num passe só, ordenados,
+  pelo `Tessellator`; iluminação de dois lados para as faces de trás.
+* O jar de release passa a sair do `shadowJar` (Concentus relocado em `com.akashic.futura.shadow`), com o pacote `dev`
+  excluído também ali; as bibliotecas nativas e `natives/THIRD_PARTY_LICENSES.txt` vão no jar.
+* Novo `config/futura3d/client.properties` (opções do cliente: `view_locator_camera`, `print_animation_roulette_msg`),
+  separado de `futura3d-client.properties` (a escolha local, que é apagada ao voltar ao padrão).
+* Em primeira pessoa o animador do corpo do jogador local agora roda a cada quadro (para a altura da câmera): os sons e
+  eventos das animações do corpo também tocam em primeira pessoa.
+
+![O jogador com o modelo vindo de um .ysm v2 do servidor, guardado só na memória do cliente](img/etapa6-ysm-legado-rede.png)
+
 ## Fases
 
 1. **Prova:** ler um modelo CC0 embutido, assar em display lists, desenhar no lugar do jogador local; medir ms/quadro
@@ -977,6 +1011,8 @@ embutidos, estados externos e o SlashBlade no `wine_fox/13_matured` e no `misc/1
 3. **Jogador completo:** itens nos locators, primeira pessoa (`arm.json`, `Background`), escala, emotes `extra`.
 4. **Servidor:** catálogo, fragmentos, cache, seleção, autorização, roleta e seletor.
 5. **Extras:** controladores Bedrock, funções `@evento`, sons Vorbis, `v.roaming`, SlashBlade e Touhou Little Maid.
+6. **Paridade e carregador nativo:** `.ysm` legado em memória, projéteis e veículos, Opus, câmera pelo `ViewLocator`,
+   nomes traduzidos, ordem dos translúcidos, validação contra o YSM 1.20.
 
 O critério de "emulado" é paridade lado a lado com o YSM 1.20 nos mesmos modelos abertos: mesma pose em cada estado,
 mesma física, mesmo piscar, emotes, brilho e sons. Animações de mods que não existem na 1.7.10 (TaCZ, Carry On,

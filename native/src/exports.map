@@ -1,0 +1,6 @@
+{
+  global:
+    Java_com_akashic_futura_natives_LegacyNative_*;
+  local:
+    *;
+};

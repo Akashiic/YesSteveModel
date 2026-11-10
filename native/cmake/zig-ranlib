@@ -1,0 +1,4 @@
+#!/bin/sh
+# Wrapper so that CMake sees one executable per tool (see zig-toolchain.cmake).
+if command -v zig >/dev/null 2>&1; then exec zig ranlib "$@"; fi
+exec python3 -m ziglang ranlib "$@"

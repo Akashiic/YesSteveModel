@@ -1,5 +1,6 @@
 package com.akashic.futura.model;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -39,10 +40,39 @@ public final class LoadedModel {
      * the file's path in the source. Read when played.
      */
     public final Map<String, String> sounds;
+    /**
+     * Projectile replacements ({@code files.projectiles}, then the deprecated {@code files.arrow}), in manifest order.
+     */
+    public final List<ReplacementTarget> projectiles;
+    /** Vehicle replacements ({@code files.vehicles}), in manifest order. */
+    public final List<ReplacementTarget> vehicles;
+    /** Replacement targets that could not be read (left out; the host draws those entities). */
+    public final List<String> replacementErrors;
 
     LoadedModel(ModelSource source, ModelManifest manifest, BakedGeometry main, BakedGeometry arm,
         Map<String, AnimationFile> animations, List<String> textures, float heightScale, float widthScale,
         Map<String, AnimationController> controllers, Map<String, String> functions, Map<String, String> sounds) {
+        this(
+            source,
+            manifest,
+            main,
+            arm,
+            animations,
+            textures,
+            heightScale,
+            widthScale,
+            controllers,
+            functions,
+            sounds,
+            Collections.<ReplacementTarget>emptyList(),
+            Collections.<ReplacementTarget>emptyList(),
+            Collections.<String>emptyList());
+    }
+
+    LoadedModel(ModelSource source, ModelManifest manifest, BakedGeometry main, BakedGeometry arm,
+        Map<String, AnimationFile> animations, List<String> textures, float heightScale, float widthScale,
+        Map<String, AnimationController> controllers, Map<String, String> functions, Map<String, String> sounds,
+        List<ReplacementTarget> projectiles, List<ReplacementTarget> vehicles, List<String> replacementErrors) {
         this.source = source;
         this.manifest = manifest;
         this.main = main;
@@ -54,6 +84,38 @@ public final class LoadedModel {
         this.controllers = Collections.unmodifiableMap(controllers);
         this.functions = Collections.unmodifiableMap(functions);
         this.sounds = Collections.unmodifiableMap(sounds);
+        this.projectiles = Collections.unmodifiableList(new ArrayList<>(projectiles));
+        this.vehicles = Collections.unmodifiableList(new ArrayList<>(vehicles));
+        this.replacementErrors = Collections.unmodifiableList(new ArrayList<>(replacementErrors));
+    }
+
+    /**
+     * The projectile replacement for an entity id ({@code minecraft:arrow}): the first usable target that matches it,
+     * in manifest order (upstream {@code ClientCatalogManager.findRenderTarget}), or null.
+     */
+    public ReplacementTarget projectile(String entityId) {
+        return find(projectiles, entityId);
+    }
+
+    /** The vehicle replacement for an entity id ({@code minecraft:boat}), as {@link #projectile}, or null. */
+    public ReplacementTarget vehicle(String entityId) {
+        return find(vehicles, entityId);
+    }
+
+    /** Every replacement target: the projectiles, then the vehicles. */
+    public List<ReplacementTarget> replacements() {
+        List<ReplacementTarget> all = new ArrayList<>(projectiles);
+        all.addAll(vehicles);
+        return all;
+    }
+
+    private static ReplacementTarget find(List<ReplacementTarget> targets, String entityId) {
+        for (ReplacementTarget target : targets) {
+            if (target.usable() && target.matches(entityId)) {
+                return target;
+            }
+        }
+        return null;
     }
 
     public String name() {

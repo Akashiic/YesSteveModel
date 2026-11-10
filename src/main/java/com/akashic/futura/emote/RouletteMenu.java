@@ -227,6 +227,35 @@ public final class RouletteMenu {
         return ids;
     }
 
+    /**
+     * The label of the {@code #id} entry that opens a sub-page (the first one found, root first), or the id itself
+     * when no entry names it with a label.
+     */
+    public String classifyLabel(String id) {
+        String key = SPEC_PREFIX + id;
+        String found = label(root, key);
+        if (found == null) {
+            for (List<Entry> level : classify.values()) {
+                found = label(level, key);
+                if (found != null) {
+                    break;
+                }
+            }
+        }
+        return found != null ? found : id;
+    }
+
+    private static String label(List<Entry> level, String key) {
+        for (Entry e : level) {
+            if (e.key.equals(key) && e.value != null
+                && !e.value.trim()
+                    .isEmpty()) {
+                return e.label;
+            }
+        }
+        return null;
+    }
+
     /** true on the first page of the root: only there the extra keys are shown (they address root entries). */
     public boolean showsKeys() {
         return path.size() == 1 && page() == 0;

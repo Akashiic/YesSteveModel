@@ -11,11 +11,23 @@ Changes made in this fork:
 
 * the project was moved to Minecraft Forge 1.7.10 (Java 8 bytecode); the upstream 1.20 code remains unchanged on
   branch `dev/1.20`, and files brought over from it are adapted and say so in their header;
-* - the official native library (YesSteveModel-Native, Apache-2.0) is retained to support loading legacy binary .ysm models strictly in-memory alongside the open authoring format;
+* legacy binary `.ysm` models are read strictly in memory alongside the open authoring format: the v1/v2 bundles by a
+  Java port of `modules/legacy/src/bundle.cc`, the encrypted v3 container by the official legacy decoder of
+  [YesSteveModel-Native](https://github.com/YesSteveModel/YesSteveModel-Native) (Apache-2.0, commit `907d1c6`),
+  vendored under `native/upstream/` and built as the slim library `natives/*/libfutura3d.so` / `futura3d.dll` with our
+  own JNI entry and exporter (`native/src/`). Everything linked into that library (the CityHash fork and ChaCha code
+  inside the decoder, Abseil, Zstandard, libwebp, the C++ runtime) is listed with its licence text in
+  `natives/THIRD_PARTY_LICENSES.txt`, shipped in the jar next to the libraries;
 * the built-in models `wine_fox/09_hailuo`, `wine_fox/10_zhiban` and `wine_fox/17_mini` (All Rights Reserved) were
   removed; the remaining built-in models are under `assets/futura3d/builtin` and keep the licence and authors written
   in each `ysm.json` (CC0 or CC BY-NC-SA 4.0); they are not covered by the Apache License;
 * the upstream documentation is kept as reference under `docs/upstream/`.
+
+Third-party libraries bundled in this fork's release jar:
+
+| Library | Version | License | Where | Licence text |
+|---|---|---|---|---|
+| [Concentus](https://github.com/lostromb/concentus) (Java port of libopus; Maven `io.github.jaredmdobson:concentus`) | 1.0.2 | BSD-3-Clause (Opus/Concentus terms) | shaded, relocated to `com.akashic.futura.shadow.io.github.jaredmdobson.concentus`; decodes Ogg Opus model sounds | `licenses/concentus` (in the jar; `src/main/resources/licenses/concentus` in the repository) |
 
 The upstream NOTICE follows unchanged (paths in it refer to the upstream tree).
 

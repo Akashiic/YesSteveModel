@@ -62,6 +62,20 @@ class MessageCodecTest {
 
         CatalogEntry e = entry(files());
         Message.ModelEntry me = (Message.ModelEntry) roundTrip(new Message.ModelEntry(7, e.withLocked(true)));
+        CatalogEntry memoryOnly = new CatalogEntry(
+            e.id,
+            e.name,
+            e.tips,
+            e.license,
+            e.authors,
+            false,
+            false,
+            true,
+            e.files);
+        Message.ModelEntry mo = (Message.ModelEntry) roundTrip(new Message.ModelEntry(8, memoryOnly.withLocked(true)));
+        assertTrue(mo.entry.memoryOnly);
+        assertTrue(mo.entry.locked);
+        assertFalse(mo.entry.restricted);
         assertEquals(7, me.revision);
         assertEquals(e.id, me.entry.id);
         assertEquals("Modelo ✓", me.entry.name);
@@ -142,6 +156,10 @@ class MessageCodecTest {
         Message.RoamingUpdate u = (Message.RoamingUpdate) roundTrip(new Message.RoamingUpdate(false, vars(16)));
         assertFalse(u.reset);
         assertEquals(vars(16), u.values);
+        Message.ProjectileOwner po = (Message.ProjectileOwner) roundTrip(
+            new Message.ProjectileOwner(-7, new UUID(8, 9)));
+        assertEquals(-7, po.entityId);
+        assertEquals(new UUID(8, 9), po.owner);
         Message.Sync sync = (Message.Sync) roundTrip(new Message.Sync(new UUID(5, 6), new float[] { 1, -2.5f, 0 }));
         assertArrayEquals(new float[] { 1, -2.5f, 0 }, sync.args);
         assertEquals(0, ((Message.SyncRequest) roundTrip(new Message.SyncRequest(new float[0]))).args.length);

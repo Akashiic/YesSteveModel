@@ -274,7 +274,9 @@ public final class ModelServer {
             s.syncs.tick();
             if (s.hello) {
                 UUID to = e.getKey();
-                s.queue.tick(perTick, snapshot::content, m -> net.send(to, m));
+                ModelRepository.Snapshot current = snapshot;
+                int version = s.version;
+                s.queue.tick(perTick, hash -> current.content(hash, version), m -> net.send(to, m));
             }
         }
     }
@@ -301,7 +303,12 @@ public final class ModelServer {
         }
         switch (m.type()) {
             case Protocol.C_REQUEST:
-                s.queue.request(((Message.RequestFiles) m).hashes, snapshot::content, out -> net.send(from, out));
+                ModelRepository.Snapshot current = snapshot;
+                int version = s.version;
+                s.queue.request(
+                    ((Message.RequestFiles) m).hashes,
+                    hash -> current.content(hash, version),
+                    out -> net.send(from, out));
                 break;
             case Protocol.C_SELECT: {
                 Message.Select select = (Message.Select) m;
@@ -361,8 +368,9 @@ public final class ModelServer {
         ModelRepository.Snapshot s = snapshot;
         Session session = sessions.get(player);
         int version = session == null ? Protocol.VERSION : session.version;
-        net.send(player, new Message.ServerHello(version, s.revision, s.models.size(), player));
-        for (ServerModel m : s.models) {
+        List<ServerModel> offered = s.offered(version);
+        net.send(player, new Message.ServerHello(version, s.revision, offered.size(), player));
+        for (ServerModel m : offered) {
             net.send(player, new Message.ModelEntry(s.revision, m.entry.withLocked(!canUse(player, m))));
         }
         net.send(player, new Message.CatalogEnd(s.revision));
@@ -575,6 +583,17 @@ public final class ModelServer {
                 // The first message resets: the viewer may hold stale values from an earlier encounter.
                 net.send(viewer, new Message.Roaming(target, i <= Protocol.MAX_ROAMING_PER_MESSAGE, part));
             } while (i < all.size());
+        }
+    }
+
+    /**
+     * {@code viewer}'s client starts tracking a projectile {@code thrower} threw (after its spawn packet): tells it
+     * who, for the projectiles a 1.7.10 client cannot attribute itself (version 3).
+     */
+    public void projectileTracked(UUID viewer, int entityId, UUID thrower) {
+        Session s = sessions.get(viewer);
+        if (s != null && s.hello && Protocol.hasProjectileOwners(s.version)) {
+            net.send(viewer, new Message.ProjectileOwner(entityId, thrower));
         }
     }
 
