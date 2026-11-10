@@ -16,6 +16,7 @@ gui.futura3d.roulette.lock_on=Travada
 gui.futura3d.roulette.lock_off=Travar
 gui.futura3d.roulette.too_long=Páginas da roleta aninhadas demais
 gui.futura3d.roulette.config_no_model=Sem modelo: nada a editar
+message.futura3d.roulette.play=§6§l[§a3D Futura§6§l] §rTocando a animação '%s'
 key.futura3d.model_picker=Seletor de modelos
 gui.futura3d.picker.title=Modelos (%d)
 gui.futura3d.picker.use=Usar este modelo

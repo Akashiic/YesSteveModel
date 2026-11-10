@@ -36,12 +36,14 @@ import com.akashic.futura.geo.Mat4;
 import com.akashic.futura.geo.ModelFraming;
 import com.akashic.futura.geo.PoseMatrices;
 import com.akashic.futura.model.ModelInfo;
+import com.akashic.futura.model.ModelLang;
 
 /**
  * The model picker: every {@link ModelRegistry} model as a card with a small animated preview, its name and licence
  * (locked ones greyed out), a large rotating preview of the chosen card with its texture choice, licence and authors,
  * and a button that asks {@link ModelSelection#requestLocal} for it. Models load in the background as their page is
- * shown.
+ * shown. Names, tips, authors and texture names come from the models' language files in the game's language when the
+ * picker is opened ({@link ModelInfo#name(String)}...), else from their {@code ysm.json}.
  */
 public class ModelPickerScreen extends GuiScreen {
 
@@ -82,6 +84,8 @@ public class ModelPickerScreen extends GuiScreen {
     private final Map<ClientModel, Preview> cards = new HashMap<>();
     private final Map<ClientModel, Preview> large = new HashMap<>();
     private final PlayerSnapshot snapshot = new PlayerSnapshot();
+    /** The models' locale: the game's language when the picker was opened. */
+    private final String locale = ModelLang.locale(Minecraft.getMinecraft().gameSettings.language);
     private GuiButton prevTexture, nextTexture, confirm, prevPage, nextPage;
 
     public ModelPickerScreen() {
@@ -427,7 +431,7 @@ public class ModelPickerScreen extends GuiScreen {
             drawCenteredString(fontRendererObj, text, cx + CELL_W / 2, cy + 30, 0xA0A0A0);
             ModelRegistry.INSTANCE.request(key);
         }
-        String name = info == null ? key.substring(key.indexOf(':') + 1) : info.name;
+        String name = info == null ? key.substring(key.indexOf(':') + 1) : info.name(locale);
         List<String> lines = wrap(name, CELL_W - 4, 2);
         int ly = cy + CELL_H - (lines.size() > 1 ? 19 : 14);
         for (String line : lines) {
@@ -470,12 +474,19 @@ public class ModelPickerScreen extends GuiScreen {
         if (focused == null) {
             return;
         }
-        String name = info == null ? focused : info.name;
+        String name = info == null ? focused : info.name(locale);
         List<String> title = wrap(name, LEFT_W - 8, 2);
         int ty = y0 + (title.size() > 1 ? 4 : 8);
         for (String line : title) {
             drawCenteredString(fontRendererObj, line, x0 + LEFT_W / 2, ty, TEXT);
             ty += 9;
+        }
+        String tips = info == null ? "" : info.tips(locale);
+        if (title.size() == 1 && !tips.trim()
+            .isEmpty()) {
+            // One line of the tips under a one-line name (the card's tooltip has all of it).
+            String line = fontRendererObj.trimStringToWidth(tips.replace('\n', ' '), LEFT_W - 8);
+            drawCenteredString(fontRendererObj, line, x0 + LEFT_W / 2, ty, 0x909090);
         }
         if (!ready) {
             String text = ModelRegistry.INSTANCE.state(focused) == ModelRegistry.State.FAILED
@@ -488,9 +499,10 @@ public class ModelPickerScreen extends GuiScreen {
         }
         // Texture choice.
         String tex = info.texture(texture);
+        String texName = info.textureName(tex, locale);
         String texLabel = info.textures.size() > 1
-            ? (info.textures.indexOf(tex) + 1) + "/" + info.textures.size() + " " + tex
-            : tex;
+            ? (info.textures.indexOf(tex) + 1) + "/" + info.textures.size() + " " + texName
+            : texName;
         texLabel = fontRendererObj.trimStringToWidth(texLabel, LEFT_W - 44);
         drawCenteredString(fontRendererObj, texLabel, x0 + LEFT_W / 2, y0 + 158, 0xC0C0C0);
         // Licence, prominent: a coloured band.
@@ -500,7 +512,7 @@ public class ModelPickerScreen extends GuiScreen {
         drawCenteredString(fontRendererObj, license, x0 + LEFT_W / 2, ly, licenseColor(info));
         // Authors.
         if (!info.authors.isEmpty()) {
-            String authors = I18n.format("gui.futura3d.picker.authors", String.join(", ", info.authors));
+            String authors = I18n.format("gui.futura3d.picker.authors", String.join(", ", info.authors(locale)));
             int ay = y0 + 186;
             for (String line : wrap(authors, LEFT_W - 8, 2)) {
                 drawCenteredString(fontRendererObj, line, x0 + LEFT_W / 2, ay, 0xA0A0A0);
@@ -515,7 +527,16 @@ public class ModelPickerScreen extends GuiScreen {
         if (info == null) {
             lines.add(key);
         } else {
-            lines.add(info.name);
+            lines.add(info.name(locale));
+            String tips = info.tips(locale);
+            if (!tips.trim()
+                .isEmpty()) {
+                for (String part : tips.split("\n")) {
+                    for (Object line : fontRendererObj.listFormattedStringToWidth(part, 200)) {
+                        lines.add(EnumChatFormatting.GRAY + String.valueOf(line));
+                    }
+                }
+            }
             lines.add(EnumChatFormatting.DARK_GRAY + key);
             lines.add(I18n.format("gui.futura3d.picker.license", info.license));
             if (!info.licenseDesc.isEmpty()) {
@@ -524,7 +545,7 @@ public class ModelPickerScreen extends GuiScreen {
             if (!info.authors.isEmpty()) {
                 lines.addAll(
                     fontRendererObj.listFormattedStringToWidth(
-                        I18n.format("gui.futura3d.picker.authors", String.join(", ", info.authors)),
+                        I18n.format("gui.futura3d.picker.authors", String.join(", ", info.authors(locale))),
                         200));
             }
             if (info.textures.size() > 1) {
