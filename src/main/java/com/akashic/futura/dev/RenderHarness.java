@@ -89,6 +89,10 @@ public final class RenderHarness {
                 ConnectHarness.install(words);
                 return;
             }
+            if (words[0].equals("teof")) {
+                TeofHarness.install(words);
+                return;
+            }
         } catch (java.io.IOException e) {
             // run every step
         }
