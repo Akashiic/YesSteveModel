@@ -8,7 +8,7 @@ Base: Yes Steve Model `dev/1.20`, commit `15c2c25` (2026-11-01). O estudo comple
 | Tema | Decisão |
 |---|---|
 | Java | Cliente Java 8, servidor Java 21, um jar só: tudo em bytecode Java 8 (Jabel) |
-| Formato | Só o aberto (`ysm.json` spec 2 e o layout 1.x). Nada de `.ysm` cifrado nem biblioteca nativa |
+| Formato | Formato aberto primário (ysm.json spec 2 e layout 1.x) com suporte a .ysm legado em memória via biblioteca nativa oficial (Apache-2.0) |
 | Molang | Interpretador próprio em Java 8. O do upstream depende do Semaweave (jars binários Java 17, sem fonte nem licença no jar) e do Janino |
 | Desenho | Próprio, em Java: geometria de cada osso em display list, pose aplicada por quadro. Sem o GeckoLib 1.0.4 e sem a parte nativa |
 | Rede | Canal próprio de plugin message: catálogo, arquivos em fragmentos < 32 KB, cache por hash. Nunca desserialização Java nem Molang vindo do servidor |
