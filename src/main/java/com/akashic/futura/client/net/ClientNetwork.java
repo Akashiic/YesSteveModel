@@ -144,7 +144,9 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
             + session.pendingFiles()
             + " files pending, "
             + session.downloadedBytes()
-            + " bytes downloaded";
+            + " bytes downloaded, "
+            + session.memoryFiles()
+            + " files held in memory only";
     }
 
     public boolean isConnected() {

@@ -96,6 +96,14 @@ descartada.
   container: Historical collection exceeds its field limit` (o vetor do upstream: envelope decifrado pela biblioteca,
   conteúdo aleatório recusado).
 
+* Servidor dedicado e cliente pela rede de verdade (harness `connect 127.0.0.1:25565 alex_legacy`, o servidor e o
+  cliente do mesmo commit, Xvfb + llvmpipe, cache do cliente vazio): os dois modelos do catálogo prontos,
+  `641553 bytes downloaded, 8 files held in memory only`; o cache em disco ficou com 11 arquivos, os do Steve (3 deles
+  o Alex também usa, por isso foram para o disco, como deve). `/futura3d set` troca o jogador para
+  `server:c0b195639c21...` e ele aparece com o modelo vindo do `.ysm`; o emote toca e para.
+
+![O jogador com o modelo vindo de um .ysm v2 do servidor, guardado só na memória do cliente](../img/etapa6-ysm-legado-rede.png)
+
 **A checar**:
 
 * Um `.ysm` v3 **de verdade** (exportado pelo YSM 1.x/2.x): não há um redistribuível para testar aqui. O caminho
@@ -104,8 +112,8 @@ descartada.
   modelo e comparar com o mesmo modelo no YSM 1.20 (poses, texturas, sons, controladores).
 * A DLL no Windows de verdade (compilada e conferida por `objdump`, não executada) e o singleplayer lendo `.ysm` por
   ela; o servidor Crucible com Java 21 (testado com o servidor de dev, Java 8 e 21 têm o mesmo `System.load`).
-* Modelos `memoryOnly` no cliente pela rede de verdade (o caminho foi testado com sessões reais pelo codec e o
-  servidor de dev, não com um cliente conectado), e com clientes 2 e 3 misturados no mesmo servidor.
+* Clientes 2 (jar antigo) e 3 misturados no mesmo servidor com um modelo `memoryOnly` (testado com sessões reais pelo
+  codec, não com jars de versões diferentes).
 * Imagens AVIF (recusadas) e WebP animado; o tamanho em memória de modelos legados grandes (o servidor guarda os
   arquivos convertidos, como já guardava os abertos).
 * Os scripts de geometria do 1.x (`ModelScript`: variáveis, `initialize`, `pre_animation`) e as flags de osso
