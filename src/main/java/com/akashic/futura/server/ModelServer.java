@@ -97,6 +97,11 @@ public final class ModelServer {
         /** Roaming messages: a slider dragged sends a few per second. */
         final RateLimit roamingUpdates = new RateLimit(10, 20);
         final RateLimit syncs = new RateLimit(10, 20);
+        /**
+         * Repeated hellos: a client says hello again while it has no answer (its first hello, or our answer, was lost
+         * in a proxy's server switch); each one is answered with the catalog and the states again.
+         */
+        final RateLimit hellos = new RateLimit(0.5, 3);
         /** The extra animation he plays, as last announced (null: none), for players who start seeing him. */
         String emote;
         /** His roaming variables, for players who start seeing him; cleared when his model changes. */
@@ -272,6 +277,7 @@ public final class ModelServer {
             s.emotes.tick();
             s.roamingUpdates.tick();
             s.syncs.tick();
+            s.hellos.tick();
             if (s.hello) {
                 UUID to = e.getKey();
                 ModelRepository.Snapshot current = snapshot;
@@ -351,17 +357,52 @@ public final class ModelServer {
             net.send(from, new Message.ServerHello(Protocol.VERSION, snapshot.revision, 0, from));
             return;
         }
-        if (s.hello) {
+        boolean again = s.hello;
+        if (again && !s.hellos.take()) {
             return;
         }
         s.hello = true;
         s.version = h.version;
+        ModelRepository.Snapshot snap = snapshot;
+        List<ServerModel> offered = snap.offered(h.version);
+        int memoryOnly = 0;
+        for (ServerModel m : offered) {
+            memoryOnly += m.entry.memoryOnly ? 1 : 0;
+        }
+        log.info(
+            "Handshake from " + from
+                + (again ? " (again)" : "")
+                + ": protocol="
+                + h.version
+                + ", sending "
+                + offered.size()
+                + " models ("
+                + memoryOnly
+                + " memory only"
+                + (offered.size() < snap.models.size() ? ", " + (snap.models.size() - offered.size())
+                    + " legacy models need protocol "
+                    + Protocol.MEMORY_ONLY_VERSION : "")
+                + ")");
         sendCatalog(from);
         List<Message.PlayerState> states = new ArrayList<>();
         for (UUID player : sessions.keySet()) {
             states.add(stateOf(player));
         }
         sendStates(from, states);
+    }
+
+    /**
+     * For commands and logs: whether the player's client answered the handshake, and in which protocol version.
+     */
+    public String handshakeStatus(UUID player) {
+        Session s = sessions.get(player);
+        if (s == null) {
+            return "offline";
+        }
+        if (!s.hello) {
+            return "no futura3d handshake from the client yet (no mod, or its hello was lost: it says hello again)";
+        }
+        return "protocol " + s.version + (Protocol.hasMemoryOnly(s.version) ? "" : ", legacy .ysm models not sent");
     }
 
     private void sendCatalog(UUID player) {

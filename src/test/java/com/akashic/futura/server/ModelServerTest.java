@@ -694,6 +694,65 @@ class ModelServerTest {
                 .type());
     }
 
+    /**
+     * A proxy server switch (Velocity/BungeeCord, lobby → this server): the client's first hello went to the lobby or
+     * arrived before this server knew the player, and an operator ran /futura3d set before any handshake. The hello
+     * the client repeats while unanswered brings the whole catalog, the legacy (memory-only) model included, its
+     * files, and the chosen model; a further hello (our answer lost) is answered again, within its rate limit.
+     */
+    @Test
+    void lateHelloAfterAProxySwitchGetsTheCatalogAndTheChosenModel() throws Exception {
+        java.nio.file.Files.write(
+            tmp.resolve("models/auth/hutao.ysm"),
+            com.akashic.futura.model.legacy.LegacyTestSupport
+                .bundle(2, com.akashic.futura.model.legacy.LegacyTestSupport.builtin("misc/3_default_boy"), 5));
+        server.loadNow();
+        Client ca = new Client(a);
+        clients.put(a, ca);
+        ca.session.start(); // to the lobby: nobody here knows the player yet
+        deliver();
+        assertTrue(ca.catalog.isEmpty());
+        server.join(a);
+        // the operator chooses before the client said anything that arrived
+        assertEquals("hutao", server.set(a, "hutao", null));
+        assertTrue(
+            server.handshakeStatus(a)
+                .startsWith("no futura3d handshake"));
+        deliver();
+        assertTrue(ca.catalog.isEmpty(), "nothing is sent to a client that has not said hello");
+
+        assertTrue(ca.session.helloAgain());
+        deliver();
+        run(400);
+        assertEquals("protocol " + Protocol.VERSION, server.handshakeStatus(a));
+        CatalogEntry hutao = ca.entry("default boy");
+        org.junit.jupiter.api.Assertions.assertNotNull(hutao, String.valueOf(ca.catalog));
+        assertTrue(hutao.memoryOnly);
+        assertTrue(ca.ready.containsKey(hutao.key()), "the legacy model's files arrived");
+        assertEquals(hutao.key(), ca.keys.get(a), "and the client is told to use it");
+        assertTrue(ca.session.memoryFiles() > 0);
+        assertFalse(ca.session.helloAgain(), "connected: no more hellos");
+
+        // our answer lost on the way (a new session on the client): the next hello is answered again
+        Client again = new Client(a);
+        clients.put(a, again);
+        again.session.start();
+        deliver();
+        run(400);
+        assertEquals(1, again.resets);
+        assertEquals(hutao.key(), again.keys.get(a));
+        // but not without limit
+        int answered = 0;
+        for (int i = 0; i < 10; i++) {
+            Client spam = new Client(a);
+            clients.put(a, spam);
+            spam.session.start();
+            deliver();
+            answered += spam.resets;
+        }
+        assertTrue(answered < 10, "repeated hellos are rate limited: " + answered);
+    }
+
     /** Thrown projectiles' owners go to version-3 clients only (older ones would refuse the type). */
     @Test
     void projectileOwnersOnlyToVersionThree() {

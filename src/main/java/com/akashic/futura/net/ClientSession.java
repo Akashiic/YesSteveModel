@@ -147,6 +147,20 @@ public final class ClientSession {
         out.send(new Message.ClientHello(version));
     }
 
+    /**
+     * Says hello again if nothing answered yet (behind a proxy the first hello can be lost in a server switch: sent to
+     * the previous server, or before the new one knows the player). No effect once connected or incompatible.
+     *
+     * @return whether a hello was sent
+     */
+    public boolean helloAgain() {
+        if (phase != Phase.WAITING) {
+            return false;
+        }
+        out.send(new Message.ClientHello(version));
+        return true;
+    }
+
     /** The protocol version spoken with this server (meaningful once {@link #connected}). */
     public int version() {
         return version;

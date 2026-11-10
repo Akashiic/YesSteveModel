@@ -78,6 +78,19 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
     /** The server was told the local player plays an emote and not yet that it stopped. */
     private boolean emoteAnnounced;
     private long ticks;
+    /**
+     * FML finished a modded handshake (set on the network thread): a new server, possibly behind the same connection
+     * (a BungeeCord/Velocity server switch resets the FML handshake but keeps the {@code NetHandlerPlayClient}).
+     */
+    private volatile boolean handshakeCompleted;
+    /** Hellos repeated while nothing answers, and the tick of the next one. */
+    private int helloRetries;
+    private long nextHello;
+    /** The tick the session started (a handshake event in its first second is that same connection's). */
+    private long sessionStart;
+    /** Hello retries after a (re)start: every 2 s for 20 s, then wait for the next server. */
+    private static final int MAX_HELLO_RETRIES = 10;
+    private static final int HELLO_RETRY_TICKS = 40;
     /** Token bucket for the local model's ysm.sync: 10 a second, bursts of 20 (the server's limit). */
     private double syncTokens = 20;
 
@@ -162,7 +175,17 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         }
         NetHandlerPlayClient now = Minecraft.getMinecraft()
             .getNetHandler();
-        if (now != handler) {
+        if (handshakeCompleted && ticks - sessionStart <= 20) {
+            handshakeCompleted = false; // the handshake of the connection the session just started on
+        }
+        boolean switched = handshakeCompleted && now != null
+            && now == handler
+            && Minecraft.getMinecraft().thePlayer != null;
+        if (now != handler || switched) {
+            handshakeCompleted = false;
+            if (switched) {
+                Futura3D.LOG.info("Server switch (new FML handshake on the same connection): saying hello again");
+            }
             end();
             handler = now;
             if (now != null) {
@@ -170,6 +193,16 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
                 session.setLocalPlayer(Minecraft.getMinecraft().thePlayer.getUniqueID());
                 errors = 0;
                 session.start();
+                helloRetries = 0;
+                sessionStart = ticks;
+                nextHello = ticks + HELLO_RETRY_TICKS;
+            }
+        } else if (session != null && !session.connected() && helloRetries < MAX_HELLO_RETRIES && ticks >= nextHello) {
+            if (session.helloAgain()) {
+                helloRetries++;
+                nextHello = ticks + HELLO_RETRY_TICKS;
+            } else {
+                helloRetries = MAX_HELLO_RETRIES; // incompatible: stop
             }
         }
         Runnable r;
@@ -325,6 +358,14 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
             .clear(); // UUIDs of another world
     }
 
+    /**
+     * Every completed modded handshake, including the reset a proxy does when it moves the player to another server.
+     */
+    @SubscribeEvent
+    public void onHandshake(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        handshakeCompleted = true;
+    }
+
     @SubscribeEvent
     public void onPacket(FMLNetworkEvent.ClientCustomPacketEvent event) {
         if (session == null || errors >= MAX_PROTOCOL_ERRORS) {
@@ -386,7 +427,12 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         for (CatalogEntry e : catalog) {
             bytes += e.totalSize();
         }
-        Futura3D.LOG.info("Server catalog: {} models, {} bytes in all", catalog.size(), bytes);
+        int memoryOnly = 0;
+        for (CatalogEntry e : catalog) {
+            memoryOnly += e.memoryOnly ? 1 : 0;
+        }
+        Futura3D.LOG
+            .info("Server catalog: {} models ({} memory only), {} bytes in all", catalog.size(), memoryOnly, bytes);
         ready = 0;
         generation++;
         mainThread.clear();

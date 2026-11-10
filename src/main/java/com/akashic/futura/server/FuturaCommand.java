@@ -65,8 +65,16 @@ public final class FuturaCommand extends CommandBase {
                         throw new WrongUsageException(
                             "/futura3d set <player> <model|default|builtin:<folder>> [texture]");
                     }
-                    String what = server.set(uuid(sender, args[1]), args[2], args.length > 3 ? args[3] : null);
+                    java.util.UUID target = uuid(sender, args[1]);
+                    String what = server.set(target, args[2], args.length > 3 ? args[3] : null);
+                    String status = server.handshakeStatus(target);
                     tell(sender, args[1] + " now uses " + what, EnumChatFormatting.GREEN);
+                    if (!status.startsWith("protocol " + com.akashic.futura.net.Protocol.VERSION)) {
+                        // the choice is saved, but his client cannot show it yet: say why
+                        tell(sender, args[1] + ": " + status, EnumChatFormatting.YELLOW);
+                    }
+                    com.akashic.futura.Futura3D.LOG
+                        .info("/futura3d set {} {}: {} ({})", args[1], what, status, sender.getCommandSenderName());
                     break;
                 }
                 case "auth": {
