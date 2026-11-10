@@ -483,6 +483,11 @@ public final class PlayerAnimator {
         return true;
     }
 
+    /** The main state of the last frame ({@code walk}, {@code jump}, {@code idle}...), for logs and the harness. */
+    public String mainState() {
+        return selectedControl();
+    }
+
     /** The {@code ctrl.*} state, cached for the frame (upstream {@code selectedControl}). */
     String selectedControl() {
         if (selectedControl == null) {

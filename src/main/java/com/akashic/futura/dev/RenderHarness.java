@@ -130,7 +130,38 @@ public final class RenderHarness {
         langSteps();
         replacementSteps();
         skinSteps();
+        remoteSteps();
         onlySteps();
+    }
+
+    // Other players as a 1.7.10 client sees them ("only remote"): moved by position updates, onGround never set.
+    // Before the fix their models hung in the jump pose and slid instead of walking.
+    private void remoteSteps() {
+        step("remote-walk", () -> {
+            fakeItem(false, null, false, 90);
+            PlayerModels.INSTANCE.use("default");
+            fakeWalk = 1;
+            atShot = () -> report("remote walking: " + remoteState());
+        });
+        step("remote-stand", () -> {
+            fakeWalk = 0;
+            atShot = () -> report("remote standing: " + remoteState());
+        });
+        step("remote-hover", () -> {
+            fakeWalk = 2;
+            atShot = () -> report("remote hovering in the air: " + remoteState());
+        });
+        step("remote-end", () -> {
+            fakeWalk = 0;
+            removeFake();
+        });
+    }
+
+    private String remoteState() {
+        com.akashic.futura.anim.PlayerAnimator a = fake == null ? null : PlayerModels.INSTANCE.animator(fake);
+        return "state " + (a == null ? "?" : a.mainState())
+            + ", entity onGround "
+            + (fake == null ? "?" : fake.onGround);
     }
 
     // The default look: the player's own skin on the Steve/Alex model ("only skin"). A synthetic skin painted by
@@ -1223,6 +1254,8 @@ public final class RenderHarness {
     private EntityOtherPlayerMP fake;
     private float fakeYaw;
     private int fakeHurt;
+    /** The second player moved like a network player: 0 still, 1 walking along x, 2 hovering 2 blocks up. */
+    private int fakeWalk;
     private boolean fakeDying;
     private ItemStack fakeUse;
     private boolean holdUse;
@@ -1488,6 +1521,16 @@ public final class RenderHarness {
             fake.rotationYawHead = fake.prevRotationYawHead = fakeYaw;
             fake.renderYawOffset = fake.prevRenderYawOffset = fakeYaw;
             fake.onGround = true;
+            if (fakeWalk > 0) {
+                // as NetHandlerPlayClient moves him: an interpolation target, and 1.7.10 never sets his ground
+                double x = fakeWalk == 1 ? 2.5 - 0.1 * ticks : 0.5;
+                fake.setPositionAndRotation2(x, fakeWalk == 2 ? 6 : 4, 3.5, fakeYaw, 0, 3);
+                fake.onGround = false;
+            } else if (index >= 0 && index < names.size()
+                && names.get(index)
+                    .startsWith("remote")) {
+                        fake.onGround = false;
+                    }
             if (fakeUse != null && fake.getItemInUseCount() < 2) {
                 fake.setItemInUse(fakeUse, fakeUse.getMaxItemUseDuration());
             }
