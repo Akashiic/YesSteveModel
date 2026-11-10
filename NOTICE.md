@@ -17,6 +17,12 @@ Changes made in this fork:
   in each `ysm.json` (CC0 or CC BY-NC-SA 4.0); they are not covered by the Apache License;
 * the upstream documentation is kept as reference under `docs/upstream/`.
 
+Third-party libraries bundled in this fork's release jar:
+
+| Library | Version | License | Where | Licence text |
+|---|---|---|---|---|
+| [Concentus](https://github.com/lostromb/concentus) (Java port of libopus; Maven `io.github.jaredmdobson:concentus`) | 1.0.2 | BSD-3-Clause (Opus/Concentus terms) | shaded, relocated to `com.akashic.futura.shadow.io.github.jaredmdobson.concentus`; decodes Ogg Opus model sounds | `licenses/concentus` (in the jar; `src/main/resources/licenses/concentus` in the repository) |
+
 The upstream NOTICE follows unchanged (paths in it refer to the upstream tree).
 
 ---
