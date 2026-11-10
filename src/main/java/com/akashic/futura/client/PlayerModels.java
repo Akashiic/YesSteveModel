@@ -172,6 +172,10 @@ public final class PlayerModels {
                 Futura3D.LOG.error("Animation failed for model {}", model.key, e);
             }
         }
+        if (!snapshot.renderingInInventory) {
+            // in a replaced vehicle the player sits at its base (upstream RenderUtil.adjustPassengerPosition)
+            y = EntityReplacements.INSTANCE.passengerY(player, y, pt);
+        }
         thirdPerson.render(
             player,
             model.renderer(skin),
@@ -254,6 +258,7 @@ public final class PlayerModels {
             }
         }
         thirdPerson.forgetReleased();
+        EntityReplacements.INSTANCE.clear();
     }
 
     /** Draws the local player's model in its rest pose at the current matrix (feet at the origin), scale applied. */

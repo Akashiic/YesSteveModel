@@ -37,6 +37,8 @@ public final class ClientModel {
     public final ModelAnimations animations;
     /** The first-person arms, or null if they could not be compiled. */
     final ModelAnimations arms;
+    /** Projectile and vehicle replacements. */
+    public final ClientReplacements replacements;
 
     private final Skin[] skins;
     private final byte[][][] partitions;
@@ -74,7 +76,7 @@ public final class ClientModel {
     private static final ResourceLocation MISSING = new ResourceLocation(Futura3D.MODID, "missing_model_texture");
 
     private ClientModel(String key, LoadedModel loaded, ModelInfo info, ModelAnimations animations,
-        ModelAnimations arms, Skin[] skins, byte[][][] partitions, int defaultSkin) {
+        ModelAnimations arms, Skin[] skins, byte[][][] partitions, int defaultSkin, ClientReplacements replacements) {
         this.key = key;
         this.loaded = loaded;
         this.info = info;
@@ -84,6 +86,7 @@ public final class ClientModel {
         this.partitions = partitions;
         this.renderers = new GeometryRenderer[partitions.length];
         this.defaultSkin = defaultSkin;
+        this.replacements = replacements;
     }
 
     /**
@@ -148,7 +151,8 @@ public final class ClientModel {
             arms,
             skins,
             Arrays.copyOf(partitions, distinct),
-            defaultSkin);
+            defaultSkin,
+            ClientReplacements.load(key, loaded, source, packTextures));
     }
 
     /** Where a built-in model's texture is in the resource packs. */
@@ -230,6 +234,7 @@ public final class ClientModel {
                 skin.uploaded.release();
             }
         }
+        replacements.release();
     }
 
     /** Distinct face partitions (one display list set each), for logs. */

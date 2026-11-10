@@ -20,10 +20,10 @@ import java.util.List;
 import java.util.Map;
 
 import com.akashic.futura.anim.physics.PhysicsManager;
+import com.akashic.futura.model.ReplacementTarget;
 import com.akashic.futura.molang.MolangExpression;
 import com.akashic.futura.molang.MolangValue;
 import com.akashic.futura.molang.MolangVariables;
-import com.akashic.futura.model.ReplacementTarget;
 
 /**
  * Animates one projectile or vehicle with its replacement target. Call {@link #update} once per frame before drawing,

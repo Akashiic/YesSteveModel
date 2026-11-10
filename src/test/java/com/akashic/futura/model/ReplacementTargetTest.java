@@ -106,8 +106,10 @@ class ReplacementTargetTest {
         ReplacementTarget cart = m.vehicles.get(1);
         assertFalse(cart.usable());
         assertNull(m.vehicle("minecraft:minecart"));
-        assertEquals(4, m.replacements()
-            .size());
+        assertEquals(
+            4,
+            m.replacements()
+                .size());
     }
 
     @Test
@@ -121,7 +123,10 @@ class ReplacementTargetTest {
                 files("animations/bad.json", "{ not json")));
         assertEquals(2, m.replacementErrors.size(), m.replacementErrors.toString());
         assertEquals(1, m.projectiles.size());
-        assertEquals("projectile/0002", m.projectiles.get(0).id());
+        assertEquals(
+            "projectile/0002",
+            m.projectiles.get(0)
+                .id());
         assertEquals("c.png", m.projectile("minecraft:arrow").texture);
         assertNotNull(m.main);
     }
@@ -177,8 +182,9 @@ class ReplacementTargetTest {
             null,
             null);
         assertEquals(a.domain(), b.domain());
-        assertFalse(a.domain()
-            .equals(c.domain()));
+        assertFalse(
+            a.domain()
+                .equals(c.domain()));
     }
 
     static Map<String, byte[]> files(String path, String content) {
@@ -248,5 +254,26 @@ class ReplacementTargetTest {
                 .domain(),
             maid.projectile("minecraft:arrow")
                 .domain());
+    }
+
+    @Test
+    void legacyEntityNamesAsModernIds() {
+        assertEquals("minecraft:arrow", LegacyEntityIds.of("Arrow", 0));
+        assertEquals("minecraft:boat", LegacyEntityIds.of("Boat", 0));
+        assertEquals("minecraft:minecart", LegacyEntityIds.of("MinecartRideable", 0));
+        assertEquals("minecraft:chest_minecart", LegacyEntityIds.of("MinecartChest", 0));
+        assertEquals("minecraft:pig", LegacyEntityIds.of("Pig", 0));
+        assertEquals("minecraft:horse", LegacyEntityIds.of("EntityHorse", 0));
+        assertEquals("minecraft:donkey", LegacyEntityIds.of("EntityHorse", 1));
+        assertEquals("minecraft:mule", LegacyEntityIds.of("EntityHorse", 2));
+        assertEquals("minecraft:zombie_horse", LegacyEntityIds.of("EntityHorse", 3));
+        assertEquals("minecraft:skeleton_horse", LegacyEntityIds.of("EntityHorse", 4));
+        assertEquals("minecraft:horse", LegacyEntityIds.of("EntityHorse", 9));
+        assertEquals("minecraft:ender_pearl", LegacyEntityIds.of("ThrownEnderpearl", 0));
+        assertEquals("minecraft:zombified_piglin", LegacyEntityIds.of("PigZombie", 0));
+        assertEquals("mymod:flying_carpet", LegacyEntityIds.of("MyMod.FlyingCarpet", 0));
+        assertEquals("minecraft:some_thing", LegacyEntityIds.of("SomeThing", 0));
+        assertNull(LegacyEntityIds.of(null, 0));
+        assertNull(LegacyEntityIds.of("", 0));
     }
 }

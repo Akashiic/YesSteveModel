@@ -39,8 +39,7 @@ class EntityAnimatorTest {
 
     static EntityAnimations anims(ReplacementTarget.Kind kind, String animationsJson,
         Map<String, ControllerData> controllers, ModelFunctions functions) {
-        return EntityAnimations
-            .of(kind, GEO, AnimTestSupport.library(animationsJson, null), controllers, functions);
+        return EntityAnimations.of(kind, GEO, AnimTestSupport.library(animationsJson, null), controllers, functions);
     }
 
     static List<String> names(EntityAnimator a) {
@@ -111,8 +110,9 @@ class EntityAnimatorTest {
                 ModelFunctions.EMPTY));
         assertEquals(Collections.singletonList("projectile.parallel_0"), names(a));
         run(a, new EntitySnapshot(), 0, 5);
-        assertTrue(a.pose()
-            .hidden(GEO.indexOf("tip")));
+        assertTrue(
+            a.pose()
+                .hidden(GEO.indexOf("tip")));
     }
 
     static final String VEHICLE_ANIMS = "\"ground\":{\"loop\":true,\"bones\":{\"root\":{\"position\":[0,2,0]}}},"
@@ -191,15 +191,22 @@ class EntityAnimatorTest {
         owner.set("roaming.wheel", MolangValue.of(12.5));
         owner.set("local", MolangValue.of(3));
         a.takeRoaming(owner);
-        assertEquals(12.5, a.variables()
-            .get("roaming.wheel")
-            .asNumber(), 1e-6);
-        assertFalse(a.variables()
-            .has("local"));
+        assertEquals(
+            12.5,
+            a.variables()
+                .get("roaming.wheel")
+                .asNumber(),
+            1e-6);
+        assertFalse(
+            a.variables()
+                .has("local"));
         a.variables()
             .set("roaming.wheel", MolangValue.of(1));
-        assertEquals(12.5, owner.get("roaming.wheel")
-            .asNumber(), 1e-6);
+        assertEquals(
+            12.5,
+            owner.get("roaming.wheel")
+                .asNumber(),
+            1e-6);
     }
 
     @Test
@@ -217,14 +224,23 @@ class EntityAnimatorTest {
         s.inWater = true;
         run(a, s, 0, 2);
         EntityMolangContext ctx = (EntityMolangContext) contextOf(a);
-        assertEquals("minecraft:bow", ctx.call("ysm", "shoot_item_id", new MolangValue[0])
-            .asString());
-        assertEquals(10, ctx.call("query", "ground_speed", new MolangValue[0])
-            .asNumber(), 1e-4);
-        assertTrue(ctx.call("query", "is_in_water", new MolangValue[0])
-            .asBoolean());
-        assertEquals(0, ctx.call("ctrl", "idle", new MolangValue[0])
-            .asNumber(), 0);
+        assertEquals(
+            "minecraft:bow",
+            ctx.call("ysm", "shoot_item_id", new MolangValue[0])
+                .asString());
+        assertEquals(
+            10,
+            ctx.call("query", "ground_speed", new MolangValue[0])
+                .asNumber(),
+            1e-4);
+        assertTrue(
+            ctx.call("query", "is_in_water", new MolangValue[0])
+                .asBoolean());
+        assertEquals(
+            0,
+            ctx.call("ctrl", "idle", new MolangValue[0])
+                .asNumber(),
+            0);
         assertNull(ctx.call("query", "no_such_query", new MolangValue[0]));
     }
 
@@ -251,17 +267,21 @@ class EntityAnimatorTest {
         EntitySnapshot s = new EntitySnapshot();
         s.shootItemId = "minecraft:bow";
         run(a, s, 0, 3);
-        assertFalse(a.pose()
-            .hidden(bow));
-        assertTrue(a.pose()
-            .hidden(crossbow));
+        assertFalse(
+            a.pose()
+                .hidden(bow));
+        assertTrue(
+            a.pose()
+                .hidden(crossbow));
         EntityAnimator b = new EntityAnimator(anims);
         s.shootItemId = "minecraft:crossbow";
         run(b, s, 0, 3);
-        assertTrue(b.pose()
-            .hidden(bow));
-        assertFalse(b.pose()
-            .hidden(crossbow));
+        assertTrue(
+            b.pose()
+                .hidden(bow));
+        assertFalse(
+            b.pose()
+                .hidden(crossbow));
     }
 
     @Test
@@ -275,8 +295,10 @@ class EntityAnimatorTest {
         // no default target for horses
         EntityAnimations horse = EntityAnimations.compile(maid, maid.vehicle("minecraft:horse"));
         assertNull(horse.library.fallback());
-        assertNotNull(DefaultAnimations.replacementLibrary(maid.vehicle("minecraft:boat")
-            .domain()));
+        assertNotNull(
+            DefaultAnimations.replacementLibrary(
+                maid.vehicle("minecraft:boat")
+                    .domain()));
     }
 
     @TestFactory

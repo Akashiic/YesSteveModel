@@ -138,7 +138,10 @@ public final class ReplacementTarget {
     private static boolean valid(String s, boolean path) {
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            boolean ok = c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.'
+            boolean ok = c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+                || c == '_'
+                || c == '-'
+                || c == '.'
                 || path && c == '/';
             if (!ok) {
                 return false;
