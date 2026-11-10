@@ -8,7 +8,7 @@ com a equipe do YSM. O objetivo é rodar na 1.7.10 modelos do nível dos atuais 
 
 * Lê o formato **aberto** de autoria: uma pasta ou zip com `ysm.json` (`"spec": 2`), geometria e animações Bedrock,
   Molang, texturas PNG. Os modelos que funcionam no YSM moderno nesse formato devem funcionar aqui.
-* **Não** lê `.ysm` exportados (cifrados) e não usa a biblioteca nativa do upstream.
+* Suporta modelos no formato aberto de autoria e compatibilidade com binários legados (.ysm) via biblioteca nativa oficial (YesSteveModel-Native, Apache-2.0) carregada estritamente em memória.
 * Os modelos embutidos (`src/main/resources/assets/futura3d/builtin`) mantêm a licença e os autores escritos em cada
   `ysm.json` (CC0 ou CC BY-NC-SA 4.0: nada de venda).
 
