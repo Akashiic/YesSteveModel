@@ -66,14 +66,25 @@ public final class EntityReplacements {
         boolean resolved;
         /** The model key of the owner (fixed for a projectile, the last player rider's for a vehicle), or null. */
         String modelKey;
-        /** The player whose roaming variables a vehicle takes while he rides it. */
-        EntityPlayer rider;
+        /**
+         * The player whose roaming variables a vehicle takes while he rides it. Weak: the states are weakly keyed by
+         * the vehicle, and a rider points back to it ({@code ridingEntity}).
+         */
+        java.lang.ref.WeakReference<EntityPlayer> riderRef;
         String shootItemId = "";
         ClientModel model;
         ClientReplacements.Target target;
         EntityAnimator animator;
         PoseMatrices pose;
         final EntitySnapshot snapshot = new EntitySnapshot();
+
+        EntityPlayer rider() {
+            return riderRef == null ? null : riderRef.get();
+        }
+
+        void setRider(EntityPlayer player) {
+            riderRef = player == null ? null : new java.lang.ref.WeakReference<>(player);
+        }
     }
 
     private final Map<Entity, State> states = new WeakHashMap<>();
@@ -109,6 +120,11 @@ public final class EntityReplacements {
     }
 
     /** Forgets every entity (models were freed, or the world changed). */
+    /** Entities with a replacement state (leak checks of the harness). */
+    public int stateCount() {
+        return states.size();
+    }
+
     public void clear() {
         throwers.clear();
         for (State state : states.values()) {
@@ -171,16 +187,17 @@ public final class EntityReplacements {
             if (owner != null) {
                 state.modelKey = PlayerModels.INSTANCE.keyOf(owner);
                 state.shootItemId = itemId(owner.getHeldItem());
-                state.rider = owner;
+                state.setRider(owner);
             }
         }
         if (!prepare(state, entity, true)) {
             return false;
         }
-        if (state.rider != null) {
+        EntityPlayer shooter = state.rider();
+        if (shooter != null) {
             // the shooter's roaming variables at the shot (upstream initRoamingVars once)
-            takeRoaming(state, state.rider);
-            state.rider = null;
+            takeRoaming(state, shooter);
+            state.setRider(null);
         }
         float yaw = entity.prevRotationYaw + (entity.rotationYaw - entity.prevRotationYaw) * pt;
         float pitch = entity instanceof EntityFishHook ? 0 // upstream: the bobber's pitch is forced to 0
@@ -212,8 +229,9 @@ public final class EntityReplacements {
         if (!prepare(state, entity, false)) {
             return false;
         }
-        if (state.rider != null && state.rider == entity.riddenByEntity) {
-            takeRoaming(state, state.rider);
+        EntityPlayer riding = state.rider();
+        if (riding != null && riding == entity.riddenByEntity) {
+            takeRoaming(state, riding);
         }
         return draw(state, entity, x, y, z, pt, 180 - vehicleYaw(entity, yawIn, pt), 0);
     }
@@ -257,10 +275,10 @@ public final class EntityReplacements {
     private static void updateRider(State state, Entity vehicle) {
         if (vehicle.riddenByEntity instanceof EntityPlayer) {
             EntityPlayer rider = (EntityPlayer) vehicle.riddenByEntity;
-            state.rider = rider;
+            state.setRider(rider);
             state.modelKey = PlayerModels.INSTANCE.keyOf(rider);
         } else {
-            state.rider = null;
+            state.setRider(null);
         }
         state.resolved = true;
     }

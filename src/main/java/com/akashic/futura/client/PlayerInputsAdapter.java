@@ -8,6 +8,7 @@ import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
+import net.minecraft.client.entity.EntityOtherPlayerMP;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityList;
@@ -26,6 +27,7 @@ import net.minecraft.item.ItemPotion;
 import net.minecraft.item.ItemSpade;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemSword;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
@@ -34,13 +36,23 @@ import com.akashic.futura.anim.ItemConditions;
 import com.akashic.futura.anim.ItemInfo;
 import com.akashic.futura.anim.PlayerInputs;
 import com.akashic.futura.anim.PlayerSnapshot;
+import com.akashic.futura.anim.RemoteMotion;
 import com.akashic.futura.anim.SlashBladeStates;
+import com.akashic.futura.anim.SwimState;
 
 /** Fills a {@link PlayerSnapshot} from a 1.7.10 player, once per frame (render thread). */
 final class PlayerInputsAdapter {
 
     /** Item info by item and damage: the OreDictionary lookup is not free. */
     private static final Map<Long, ItemInfo> ITEMS = new HashMap<>();
+
+    /** Other players' estimated ground, flight and walking (see {@link RemoteMotion}). */
+    private static final Map<AbstractClientPlayer, RemoteMotion> REMOTE = new java.util.WeakHashMap<>();
+    /** Each player's swimming pose by our own rule, when Akashic Player Backport is not there. */
+    private static final Map<AbstractClientPlayer, SwimState> SWIM = new java.util.WeakHashMap<>();
+
+    /** How far under the feet the ground is looked for (positions arrive in 1/32 block steps). */
+    private static final double GROUND_PROBE = 0.1;
 
     private PlayerInputsAdapter() {}
 
@@ -87,6 +99,10 @@ final class PlayerInputsAdapter {
         s.experienceLevel = p.experienceLevel;
         s.distanceWalkedModified = p.distanceWalkedModified;
         s.distanceWalkedOnStepModified = p.distanceWalkedOnStepModified;
+        if (p instanceof EntityOtherPlayerMP) {
+            remote(s, p);
+        }
+        swimAndCrawl(s, p);
 
         s.mainhand = item(p.getHeldItem());
         s.external = PlayerModels.INSTANCE.externalStates()
@@ -134,6 +150,74 @@ final class PlayerInputsAdapter {
         // GuiInventory draws the player with the view yaw forced to 180.
         s.renderingInInventory = RenderManager.instance.playerViewY == 180f && mc.currentScreen != null;
         s.distanceFromCamera = mc.renderViewEntity == null ? 0 : p.getDistanceToEntity(mc.renderViewEntity);
+    }
+
+    /**
+     * Another player: 1.7.10 sends neither his ground nor his flight, and his entity does not move itself, so they
+     * are estimated from his positions and the blocks under him.
+     */
+    private static void remote(PlayerSnapshot s, AbstractClientPlayer p) {
+        RemoteMotion m = REMOTE.get(p);
+        if (m == null) {
+            m = new RemoteMotion();
+            REMOTE.put(p, m);
+        }
+        if (m.stale(p.ticksExisted)) {
+            boolean riding = p.ridingEntity != null;
+            m.update(
+                p.ticksExisted,
+                p.posX - p.prevPosX,
+                p.posY - p.prevPosY,
+                p.posZ - p.prevPosZ,
+                !riding && groundBelow(p),
+                p.isInWater(),
+                riding);
+        }
+        s.onGround = m.onGround();
+        s.flying = m.flying();
+        s.motionX = m.motionX();
+        s.motionZ = m.motionZ();
+        s.distanceWalkedModified = m.walked();
+        s.distanceWalkedOnStepModified = m.walkedOnStep();
+    }
+
+    /**
+     * The 1.13+ poses: Akashic Player Backport's when it is installed (it also gives the hitbox and movement, and syncs
+     * other players' poses), else swimming by the vanilla rule (sprinting with the eyes under water).
+     */
+    private static void swimAndCrawl(PlayerSnapshot s, AbstractClientPlayer p) {
+        if (PoseBridge.present()) {
+            PoseBridge.Pose pose = PoseBridge.pose(p);
+            s.swimming = pose == PoseBridge.Pose.SWIMMING;
+            s.crawling = pose == PoseBridge.Pose.CRAWLING;
+            return;
+        }
+        SwimState state = SWIM.get(p);
+        if (state == null) {
+            state = new SwimState();
+            SWIM.put(p, state);
+        }
+        s.swimming = state.update(
+            p.isSprinting(),
+            p.isInWater(),
+            p.isInsideOfMaterial(net.minecraft.block.material.Material.water),
+            p.ridingEntity != null,
+            s.flying);
+        s.crawling = false;
+    }
+
+    /** A collision box (block or entity) in a thin slab under the player's feet. */
+    private static boolean groundBelow(AbstractClientPlayer p) {
+        AxisAlignedBB bb = p.boundingBox;
+        AxisAlignedBB probe = AxisAlignedBB.getBoundingBox(
+            bb.minX + 0.001,
+            bb.minY - GROUND_PROBE,
+            bb.minZ + 0.001,
+            bb.maxX - 0.001,
+            bb.minY,
+            bb.maxZ - 0.001);
+        return !p.worldObj.getCollidingBoundingBoxes(p, probe)
+            .isEmpty();
     }
 
     /** The same item with the {@code slashblade} class, cached per item info. */

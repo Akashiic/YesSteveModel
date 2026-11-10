@@ -160,6 +160,19 @@ class MessageCodecTest {
             new Message.ProjectileOwner(-7, new UUID(8, 9)));
         assertEquals(-7, po.entityId);
         assertEquals(new UUID(8, 9), po.owner);
+        Message.Access access = (Message.Access) roundTrip(
+            new Message.Access(true, false, Arrays.asList("builtin:wine_fox/18_wedding", "server:" + repeat('a', 64))));
+        assertTrue(access.reset);
+        assertFalse(access.listsUnlocked);
+        assertEquals(2, access.keys.size());
+        List<String> many = new ArrayList<>();
+        for (int i = 0; i <= Protocol.MAX_ACCESS_KEYS; i++) {
+            many.add("builtin:m" + i);
+        }
+        assertThrows(IllegalArgumentException.class, () -> MessageCodec.encode(new Message.Access(true, true, many)));
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> MessageCodec.encode(new Message.Access(true, true, Arrays.asList("builtin:../x"))));
         Message.Sync sync = (Message.Sync) roundTrip(new Message.Sync(new UUID(5, 6), new float[] { 1, -2.5f, 0 }));
         assertArrayEquals(new float[] { 1, -2.5f, 0 }, sync.args);
         assertEquals(0, ((Message.SyncRequest) roundTrip(new Message.SyncRequest(new float[0]))).args.length);
@@ -485,5 +498,11 @@ class MessageCodecTest {
             Sha256.fromHex(
                 Sha256.of(new byte[] { 5 })
                     .hex()));
+    }
+
+    private static String repeat(char c, int n) {
+        char[] out = new char[n];
+        Arrays.fill(out, c);
+        return new String(out);
     }
 }

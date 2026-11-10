@@ -632,7 +632,10 @@ final class Nodes {
                 return;
             }
             MolangVariables variables = f.context.variables();
-            if (v == null) {
+            if (v == null || v.kind == MolangValue.Kind.NUMBER && !finite(v.asNumber())) {
+                // A non-finite F32 is a typed missing upstream, read back as 0: a NaN must not latch. Spring physics
+                // written in Molang divide by constants another animation sets a few frames later (0/0 on the first
+                // frames); a stored NaN fed itself back forever and hid every bone it drives.
                 variables.remove(key);
             } else {
                 variables.set(key, v);

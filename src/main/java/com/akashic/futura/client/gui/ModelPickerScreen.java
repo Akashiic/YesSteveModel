@@ -32,6 +32,7 @@ import com.akashic.futura.client.ClientModel;
 import com.akashic.futura.client.ModelRegistry;
 import com.akashic.futura.client.ModelSelection;
 import com.akashic.futura.client.PlayerModels;
+import com.akashic.futura.client.PlayerSkins;
 import com.akashic.futura.geo.Mat4;
 import com.akashic.futura.geo.ModelFraming;
 import com.akashic.futura.geo.PoseMatrices;
@@ -52,6 +53,7 @@ public class ModelPickerScreen extends GuiScreen {
     private static final int PREV_TEXTURE = 2;
     private static final int NEXT_TEXTURE = 3;
     private static final int CONFIRM = 4;
+    private static final int OWN_SKIN = 5;
 
     private static final int LEFT_W = 135;
     private static final int CELL_W = 52;
@@ -86,7 +88,7 @@ public class ModelPickerScreen extends GuiScreen {
     private final PlayerSnapshot snapshot = new PlayerSnapshot();
     /** The models' locale: the game's language when the picker was opened. */
     private final String locale = ModelLang.locale(Minecraft.getMinecraft().gameSettings.language);
-    private GuiButton prevTexture, nextTexture, confirm, prevPage, nextPage;
+    private GuiButton prevTexture, nextTexture, confirm, prevPage, nextPage, ownSkin;
 
     public ModelPickerScreen() {
         snapshot.renderingInInventory = true;
@@ -135,11 +137,13 @@ public class ModelPickerScreen extends GuiScreen {
         prevTexture = new AnimationRouletteScreen.FlatButton(PREV_TEXTURE, x0 + 5, y0 + 156, 14, 12, "<");
         nextTexture = new AnimationRouletteScreen.FlatButton(NEXT_TEXTURE, x0 + LEFT_W - 19, y0 + 156, 14, 12, ">");
         confirm = new AnimationRouletteScreen.FlatButton(CONFIRM, x0 + 5, y0 + H - 20, LEFT_W - 10, 16, "");
+        ownSkin = new AnimationRouletteScreen.FlatButton(OWN_SKIN, x0 + 5, y0 + H - 36, LEFT_W - 10, 14, "");
         buttonList.add(prevPage);
         buttonList.add(nextPage);
         buttonList.add(prevTexture);
         buttonList.add(nextTexture);
         buttonList.add(confirm);
+        buttonList.add(ownSkin);
         updateButtons();
     }
 
@@ -168,10 +172,23 @@ public class ModelPickerScreen extends GuiScreen {
             locked ? "gui.futura3d.picker.locked"
                 : failed ? "gui.futura3d.picker.failed"
                     : inUse ? "gui.futura3d.picker.in_use" : "gui.futura3d.picker.use");
+        // The default look (no model chosen): the player's own skin on Steve/Alex.
+        boolean skinInUse = ownSkinInUse();
+        ownSkin.visible = PlayerSkins.INSTANCE.enabled();
+        ownSkin.enabled = !skinInUse;
+        ownSkin.displayString = I18n
+            .format(skinInUse ? "gui.futura3d.picker.own_skin_in_use" : "gui.futura3d.picker.own_skin");
     }
 
+    /** No model chosen: the player is drawn with his own skin (PlayerSkins). */
+    private boolean ownSkinInUse() {
+        return mc.thePlayer != null && PlayerSkins.INSTANCE.enabled()
+            && ModelSelection.INSTANCE.keyOf(mc.thePlayer.getUniqueID()) == null;
+    }
+
+    /** The card of the model in use (none while the player wears his own skin: no card shows that). */
     private String inUseKey() {
-        return PlayerModels.INSTANCE.keyOf(mc.thePlayer);
+        return ownSkinInUse() ? null : PlayerModels.INSTANCE.keyOf(mc.thePlayer);
     }
 
     @Override
@@ -210,6 +227,13 @@ public class ModelPickerScreen extends GuiScreen {
             case CONFIRM:
                 confirm();
                 break;
+            case OWN_SKIN: {
+                boolean server = ModelSelection.INSTANCE.hasHandler();
+                ModelSelection.INSTANCE.requestLocal(null, null);
+                status = I18n.format(server ? "gui.futura3d.picker.requested" : "gui.futura3d.picker.applied");
+                statusUntil = System.currentTimeMillis() + 3000;
+                break;
+            }
             default:
                 break;
         }
@@ -514,7 +538,7 @@ public class ModelPickerScreen extends GuiScreen {
         if (!info.authors.isEmpty()) {
             String authors = I18n.format("gui.futura3d.picker.authors", String.join(", ", info.authors(locale)));
             int ay = y0 + 186;
-            for (String line : wrap(authors, LEFT_W - 8, 2)) {
+            for (String line : wrap(authors, LEFT_W - 8, 1)) {
                 drawCenteredString(fontRendererObj, line, x0 + LEFT_W / 2, ay, 0xA0A0A0);
                 ay += 9;
             }

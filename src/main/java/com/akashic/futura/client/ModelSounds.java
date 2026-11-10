@@ -84,7 +84,13 @@ public final class ModelSounds {
 
     /** The sound backend of a player drawn with a model. */
     public SoundBackend backend(Entity player, ClientModel model) {
-        return (sound, volume, pitch, loop) -> play(player, model, sound, volume, pitch, loop);
+        // Weak: the backend lives in the player's animator, which a weak map keyed by the player holds; a strong
+        // reference kept the player, and through him his whole world, in memory forever.
+        java.lang.ref.WeakReference<Entity> ref = new java.lang.ref.WeakReference<>(player);
+        return (sound, volume, pitch, loop) -> {
+            Entity entity = ref.get();
+            return entity == null ? null : play(entity, model, sound, volume, pitch, loop);
+        };
     }
 
     /** How many sounds the sound system took since start-up. */

@@ -443,8 +443,9 @@ nome).
 de todo jogador online vai para todo cliente com o mod, não só para quem o rastreia: assim quem chega perto já sabe).
 Textura que o modelo não tem vira a padrão. Escolha inválida do cliente: o servidor devolve só a ele o estado atual.
 
-A permissão está num método só, `ModelServer.canUse`: restrito precisa de grant. Plugins de permissão do Bukkit ficam
-fora (no Thermos/Crucible a ponte iria ali).
+A permissão está em `ModelServer.canUse`/`canUseBuiltin`. Desde a Etapa 6 (seção "Permissões por modelo" abaixo),
+com `requirePermission=true` (padrão) todo modelo precisa do nó `futura3d.playermodel.<modelo>`, de um grant ou de
+estar em `freeModels`; com `false`, só os restritos precisam (o comportamento desta fase).
 
 | Comando (nível 2) | O que faz |
 |---|---|
@@ -452,6 +453,7 @@ fora (no Thermos/Crucible a ponte iria ali).
 | `/futura3d reload` | relê os modelos sem reiniciar |
 | `/futura3d set <jogador> <modelo\|default\|builtin:<pasta>> [textura]` | escolha do operador, vale mesmo restrito sem grant; jogador offline por nome ou UUID |
 | `/futura3d auth <jogador> add\|remove <modelo>` | grant; reenvia o catálogo (o `locked` muda) |
+| `/futura3d access <jogador>` | o que ele pode escolher, e o nó de cada modelo (Etapa 6) |
 | `/futura3d play <jogador> <animação\|stop>` | emote para quem o vê e para ele |
 
 Modelo por nome da pasta/zip ou pelo começo do id (≥ 8 hex). Taxa por jogador: 1 seleção/s (rajada 4), 2 emotes/s
@@ -1012,6 +1014,167 @@ Mudanças que tocam o que já existia:
   eventos das animações do corpo também tocam em primeira pessoa.
 
 ![O jogador com o modelo vindo de um .ysm v2 do servidor, guardado só na memória do cliente](img/etapa6-ysm-legado-rede.png)
+
+## Modelo padrão: a skin do jogador no Steve/Alex
+
+Pedido da rede depois do teste de produção: o modelo de quem não escolheu nenhum passa a ser o Steve ou o Alex no
+esqueleto do YSM (os embutidos `misc/2_steve` e `misc/1_alex`, cujas UVs seguem o layout da skin 64x64: segunda
+camada, braço e perna esquerdos próprios), **com a skin do próprio jogador**. O upstream não faz isso (o Steve e o
+Alex dele têm textura fixa e o padrão é o modelo `default`).
+
+* `client/PlayerSkins`: a textura vem do perfil do jogador (propriedade `textures`, lida sem rede como o vanilla:
+  `MinecraftSessionService.getTextures(perfil, false)`; para o jogador local, `fillProfileProperties` se faltar).
+  `model: slim` nos metadados escolhe o Alex. A imagem é baixada aqui (o 1.7.10 corta o que baixa para 64x32), guardada
+  em `<mcDataDir>/futura3d/skins/<hash>.png`, e normalizada por `model/SkinImages` como o Minecraft 1.8 faz: skin 64x32
+  antiga ganha o braço e a perna esquerdos espelhados dos direitos e segunda camada vazia; camada base opaca; a camada
+  do chapéu de skin antiga toda opaca é limpa. Partições de face (translúcido/recorte) pelo alfa da skin de cada
+  jogador. Sem skin no perfil (servidor offline sem plugin de skin): Steve ou Alex pela regra do UUID do 1.8+, com a
+  textura do próprio modelo.
+* `PlayerModels`: sem modelo escolhido, a chave do jogador é a do Steve/Alex; enquanto o modelo escolhido carrega, o
+  jogador também aparece assim (antes era o `default`). O `builtin:default` continua carregado: é a reserva e a fonte
+  das animações que o Steve/Alex não têm (`main` e `tac` só; o resto vem do padrão, como sempre). Os dois modelos
+  carregam no início e nunca são liberados.
+* Servidor e protocolo não mudam: "sem escolha" já era a chave nula (`/futura3d set <jogador> default`). O
+  `builtin:default` explícito continua escolhível no seletor; o botão **Usar minha skin (Steve/Alex)** volta ao
+  padrão.
+* Opção `own_skin_default` (padrão `true`) em `config/futura3d/client.properties`: `false` volta ao modelo `default`.
+* `FuturaModels.modelKey` de quem usa a própria skin devolve `builtin:misc/2_steve` ou `builtin:misc/1_alex`.
+
+![Skin sintética pintada por parte no Steve (frente, costas), no Alex (frente, lado), a mesma skin em 64x32 (membros esquerdos espelhados, sem segunda camada) e um jogador sem skin (Alex com a textura do modelo)](img/etapa6-skin-padrao.png)
+
+Harness: `only skin`. Testes: `SkinImagesTest` (conversão 64x32, camadas, regra Steve/Alex). **A checar**: skins
+reais pela rede de produção (Velocity com skins encaminhadas, ou SkinsRestorer no Crucible offline), a skin de outro
+jogador chegando depois do primeiro desenho (ele aparece com a textura do modelo até ela baixar), o olho que pisca
+(as pálpebras e pupilas do Steve/Alex leem a faixa x56–64/y0–8 da skin, vazia numa skin normal: o piscar não aparece) e
+a capa (não desenhada, como nos outros modelos); o botão novo do seletor (não fotografado).
+
+## Jogadores remotos: chão, voo e caminhada estimados
+
+Relato do teste: os outros jogadores com modelo YSM ficavam flutuando e deslizavam em vez de andar. Causa: no 1.7.10 o
+cliente nunca sabe o `onGround` de outro jogador (o pacote de movimento não o traz, e o `EntityOtherPlayerMP` anda por
+interpolação, sem colisão: o campo fica `false` para sempre). O estado principal caía sempre em `jump`. O mesmo vale
+para `motionX/Z` (ficam com o último pacote de velocidade), `distanceWalkedModified` (nunca cresce) e a habilidade de
+voo (não é enviada). No 1.20 o servidor manda o `onGround`, então o upstream não precisa disso.
+
+* `anim/RemoteMotion` (puro, testado): por tique da entidade, chão = caixa de colisão numa fatia de 0,1 bloco sob os
+  pés (blocos e entidades, `World.getCollidingBoundingBoxes`), com 3 tiques de tolerância ao descer escada (os pés
+  interpolados passam acima do degrau) e saída imediata ao subir (pulo); voo = 8 tiques no ar sem subir nem descer,
+  até pousar ou cair rápido; velocidade e distância andada pelas posições, como o `Entity.moveEntity` faria.
+* `PlayerInputsAdapter` usa a estimativa só para `EntityOtherPlayerMP`; o jogador local continua com os campos reais.
+* Harness `only remote`: um jogador movido como a rede move (`setPositionAndRotation2`, `onGround` falso). Sem a
+  correção o estado é `jump` andando, parado e no ar; com ela, `walk`, `idle` e `fly`.
+
+![Antes: o jogador remoto preso na pose de pulo, flutuando sobre a sombra; depois: andando com os pés no chão](img/etapa6-jogador-remoto.png)
+
+**A checar** no servidor: escadas, lajes, neve e blocos de alturas fracionárias; jogador em pé sobre entidade; voo do
+criativo (subindo/descendo segurando espaço/shift); NPCs do Citizens (também são `EntityOtherPlayerMP` no cliente).
+
+## Nado (Ctrl na água) e o Akashic Player Backport
+
+Relato do teste: com o modelo YSM, o nado do [Akashic Player Backport](https://github.com/Akashiic/Akashic-Player-Backport)
+(`akashicplayer`) sumiu. O backport decide a pose (nado, rastejar), muda a caixa de colisão e sincroniza a pose com o
+servidor, mas desenha a pose no `ModelBiped`/`rotateCorpse` vanilla, que o modelo substitui. O estado `swim` do YSM
+existia aqui e nunca ligava (o 1.7.10 não tem pose de nado).
+
+* `client/PoseBridge`: com o backport instalado, a pose dele (`PoseController.getControlledPose`, por reflexão: nenhum
+  dos dois mods depende do outro) liga `swim` (pose `SWIMMING`) e o rastejar (`CRAWLING`, os estados `climb`/`climbing`
+  do YSM, que no 1.20 são o rastejar). Vale para os outros jogadores também (o backport sincroniza as poses).
+* Sem o backport: `anim/SwimState` (puro, testado), a regra do 1.13+ (`Player.updateSwimming`, a mesma do
+  `SwimmingDecision` do backport): correndo com os olhos debaixo d'água começa, e dura enquanto corre na água.
+* O corpo não é girado aqui: no upstream o `swim` é animação do modelo (o renderizador do YSM não aplica a inclinação
+  do `PlayerRenderer`).
+* Harness `only swim`: um jogador remoto correndo numa piscina fica em `swim`; parado na água, `swim_stand`.
+
+**A checar** no jogo com o backport alpha.29: nado e rastejar no próprio jogador e nos outros, câmera em primeira
+pessoa durante o nado (o backport baixa a câmera; o nosso `ViewCamera` usa a altura do modelo).
+
+## Franja e outras partes sumindo: NaN preso nas variáveis (não era o Angelica)
+
+Relato: partes de modelos do servidor (franja e mechas do Sparkle, da Hu Tao e da Yae Miko) não apareciam, e a
+suspeita era o Angelica. Não era: com o Angelica 2.2.43 no cliente de desenvolvimento (`./gradlew runClient -Pharness
+-Pangelica`, nunca no jar) os embutidos translúcidos desenham as mesmas partes com e sem ele.
+
+Causa (reproduzida com a Yae Miko, harness `only diag`, modelo em `run/client/config/futura3d/models/<nome>`): esses
+modelos fazem física de mola em Molang. O `parallel2` define as constantes (`v.L7_K1/K2/K3`...) em quadros de 0 a
+0,42 s, e o `parallel7` integra a cada 0,0101 s dividindo por `v.L7_K2`. Nos primeiros quadros a constante ainda não
+existe: `0/0` dá NaN, o NaN era guardado em `v.L7_P0`/`v.L7_P0dot`, realimentava a si mesmo para sempre, e toda escala
+e rotação que ele move virava 0 (`1 - 0.002*(NaN)` é um resultado não-finito, 0 no canal). Assim sumiam a franja
+(`lh_*`), o peito (`Breast`), os brincos e o que mais dependesse de `L4`/`L7`/`L8`.
+
+Correção (`molang/Nodes.VariableAssign`): um número não-finito atribuído a uma variável a deixa *missing* (lida como 0;
+`v.x ?? 1` dá 1), como o upstream trata um F32 não-finito (typed missing) e como já tratávamos valores vindos do jogo.
+O NaN não fica mais preso: a física começa em 0 e segue normal quando as constantes chegam. Teste:
+`MolangLanguageTest.aNonFiniteValueIsNotStoredInAVariable`. Harness: antes `l7_p0=NaN` e 44 ossos escondidos
+(incluindo `lh_front`, `lh_right_a`...); depois `l7_p0=0` parada, `l8_p0` responde ao andar, e só ficam escondidos os
+opcionais do modelo (caudas por nível, máscara, asas, armadura...).
+
+![Yae Miko antes (sem franja, sem brincos) e depois da correção](img/etapa6-franja-nan.png)
+
+**A checar** no servidor: Sparkle e Hu Tao (mesmo tipo de física; os arquivos não foram testados aqui).
+
+## Vazamentos de memória
+
+Revisão pedida depois do teste de produção. Harness `only leak`: 30 jogadores remotos entram na vista com modelo e
+saem (spawn igual ao da rede), GC, e conta quantos continuam na memória; depois 6 resets seguidos do catálogo do
+servidor (`/futura3d reload`, o mesmo caminho de uma troca de servidor pelo proxy) contando display lists, texturas e
+heap. Com `-Dfutura3d.harness.heapdump=true` (no `JAVA_TOOL_OPTIONS`) grava `futura3d-leak.hprof` se sobrar alguém.
+
+* **Nosso, corrigido.** O animador de cada jogador fica num `WeakHashMap` chaveado pelo jogador, mas o som
+  (`ModelSounds.backend`) e o `ysm.sync` (`ModelSync.sinkFor`) do animador guardavam o jogador por referência forte: a
+  entrada nunca saía, e com o jogador ficava o `worldObj` dele (o mundo inteiro: atrás do proxy, cada troca de servidor
+  deixava o mundo anterior na memória). O mesmo nos projéteis/veículos substituídos (som e `rider`) e no último jogador
+  desenhado do `ThirdPersonRenderer`. Agora são referências fracas. Medido: antes 1 em cada jogador com animador ficava
+  preso (heap dump: `WeakHashMap$Entry` → lambdas de `ModelSounds`/`ModelSync` → jogador); depois 0 de 30.
+* **Do Minecraft 1.7.10, corrigido aqui** (`WorldClientEntityIdMixin`): `WorldClient.addEntityToWorld` põe a entidade
+  no `entityList` (um `HashSet`, hash = id) antes de dar o id dela, então a remoção nunca a acha. Jogadores e pinturas
+  vêm por esse caminho: todo jogador que entrou no raio de visão ficava na memória até sair do mundo (num lobby cheio,
+  horas de acúmulo). O Hodgepodge 2.7.219 do pack não corrige isso (o mixin dele em `WorldClient` é de som). O mixin dá
+  o id antes, como os outros spawns do vanilla já fazem. Medido: sem ele, 100 de 100 jogadores ficavam; com ele, 0.
+* **Estável:** resets do catálogo (modelos liberados e recarregados): display lists e texturas voltam ao mesmo número
+  a cada rodada, heap estável; o cache de Molang tem limite (16 384); as prévias do seletor são liberadas ao fechar;
+  sons de modelos liberados são descarregados do sistema de som; skins de quem não é visto há 60 s são liberadas.
+* **Servidor:** 500 jogadores entrando e saindo não deixam sessão nem registro na memória (`ModelServerTest`);
+  `/futura3d access` de um jogador offline não guarda mais o registro dele.
+
+**A checar** no pack: uso de memória numa sessão longa no lobby com troca de servidores (F3 ou VisualVM).
+
+## Permissões por modelo (`futura3d.playermodel.<modelo>`)
+
+Pedido da rede (controle de quem entra para "trollar"): por padrão ninguém escolhe modelo algum; todos aparecem no
+catálogo, visíveis mas bloqueados, e cada nó libera um modelo para um jogador ou grupo. A própria skin (Steve/Alex, a
+"skin do Minecraft") fica sempre liberada.
+
+* Nós: `futura3d.playermodel.<nome do modelo em config/futura3d/models>` (nome do arquivo/pasta sem `.zip`/`.ysm`, em
+  minúsculas; vale também para os de `models/auth`), `futura3d.playermodel.builtin.<pasta com . no lugar de />` para os
+  embutidos (ex.: `futura3d.playermodel.builtin.wine_fox.18_wedding`), `futura3d.playermodel.builtin.*` para todos os
+  embutidos e `futura3d.playermodel.*` para todos. O curinga é testado explicitamente também (para o SuperPerms puro);
+  com LuckPerms grupos e curingas funcionam do jeito dele.
+* Quem decide (`server/ServerPermissions`): no Thermos/Crucible, `Player.hasPermission` do Bukkit por reflexão (o mod
+  continua rodando em Forge puro); o Bukkit dá a operador todo nó que ninguém declarou. Sem Bukkit: num servidor
+  dedicado operador tem todos e os outros nenhum; no singleplayer (e convidados de LAN) todos têm todos.
+* `config/futura3d/server.properties` (as chaves que faltam são escritas com o padrão ao iniciar):
+  `requirePermission=true` (false: só os restritos precisam, como antes), `freeModels=builtin:misc/1_alex,builtin:misc/2_steve`
+  (chaves `builtin:<pasta>` ou nomes de modelo, separados por vírgula), `permissionCheckSeconds=5`.
+* Grants de `/futura3d auth` continuam liberando; `/futura3d set` de operador vale mesmo sem permissão (agora também
+  para embutidos). `/futura3d access <jogador>` lista o que ele pode escolher e o nó de cada modelo.
+* Protocolo 4: `S_ACCESS` (`bool reset, bool lista_liberados, u8 n, n × chave`, até 192 chaves por mensagem): o
+  servidor manda a lista mais curta (as liberadas ou as bloqueadas) depois do catálogo e sempre que muda. As
+  permissões são conferidas de novo a cada `permissionCheckSeconds`: o cliente recebe a mudança sem reconectar, e quem
+  perdeu o nó do modelo que usava volta para a própria skin para todos. Clientes de protocolo 3 recebem o catálogo de
+  novo (o `locked` dos modelos do servidor; os embutidos não ficam marcados neles, mas o servidor recusa a escolha).
+* Cliente: `net/ModelAccess` guarda a lista; `ModelRegistry.isLocked` = `locked` do catálogo ou bloqueado pela lista.
+  O seletor já mostrava cartões bloqueados (cinza, "Bloqueado", botão desabilitado); a dica agora diz que falta
+  permissão do servidor.
+
+![Seletor depois de /deop num servidor dedicado sem Bukkit: modelos visíveis com "Bloqueado" e a dica de permissão](img/etapa6-permissao-seletor.png)
+
+Verificado: `ModelServerTest` (nós, curingas, grant, modelo livre por nome, nó concedido depois libera só aquele
+modelo e só para aquele jogador, nó retirado volta para a própria skin para todos, `/futura3d set` vence),
+`MessageCodecTest`, `ModelAccessTest`, e o harness `connect` contra um servidor dedicado real: como operador nada
+bloqueado, depois de `/deop` o mesmo cliente recebe a lista nova em até 5 s, o Wedding Wine Fox fica bloqueado e o
+pedido é recusado, o Steve (livre) é aceito. **A checar**: no Crucible com LuckPerms (nó dado/retirado a um grupo
+com o jogador online, `lp user ... permission set futura3d.playermodel.<modelo>`), e o custo da checagem com muitos
+jogadores e modelos (uma chamada `hasPermission` por modelo por jogador a cada 5 s, mais as dos curingas).
 
 ## Fases
 

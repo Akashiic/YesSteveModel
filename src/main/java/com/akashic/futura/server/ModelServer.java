@@ -45,8 +45,35 @@ public final class ModelServer {
         void warn(String line);
     }
 
+    /**
+     * Permission nodes ({@code futura3d.playermodel.<model>}): Bukkit's on Thermos/Crucible (a permission plugin such
+     * as LuckPerms), else the Forge glue's fallback. Server thread.
+     */
+    public interface Permissions {
+
+        boolean has(UUID player, String node);
+    }
+
+    /** Prefix of the model permission nodes. */
+    public static final String NODE_PREFIX = "futura3d.playermodel.";
+    /** Every model at once. */
+    public static final String NODE_ALL = NODE_PREFIX + "*";
+    /** Every built-in model at once. */
+    public static final String NODE_ALL_BUILTIN = NODE_PREFIX + "builtin.*";
+
     /** Tunables, from {@code config/futura3d/server.properties}. */
     public static final class Settings {
+
+        /**
+         * Every model needs its permission node ({@code futura3d.playermodel.<model>}), a grant, or to be free; false:
+         * only the restricted ones ({@code models/auth}) do. Choosing no model (the player's own skin) never does.
+         */
+        public boolean requirePermission = true;
+        /** Models anyone may select: {@code builtin:<folder>} keys or server model names. */
+        public java.util.Set<String> freeModels = new java.util.LinkedHashSet<>(
+            java.util.Arrays.asList("builtin:misc/1_alex", "builtin:misc/2_steve"));
+        /** How often permissions are checked again (a permission plugin can change them at any time). */
+        public int permissionCheckTicks = 100;
 
         /** Per player. */
         public int bytesPerSecond = 512 * 1024;
@@ -106,8 +133,13 @@ public final class ModelServer {
         String emote;
         /** His roaming variables, for players who start seeing him; cleared when his model changes. */
         final Map<String, Float> roaming = new LinkedHashMap<>();
-        /** The model key his roaming variables belong to ({@code ""} for the default model). */
+        /**
+         * The model key his roaming variables belong to ({@code ""} for the default model): the key of his last
+         * broadcast state.
+         */
         String roamingKey;
+        /** What he was last told he may select (the selectable keys, sorted), to send changes only. */
+        List<String> access;
 
         Session(int maxQueued) {
             queue = new TransferQueue(maxQueued);
@@ -137,6 +169,9 @@ public final class ModelServer {
     private volatile boolean reloading;
     private ExecutorService worker;
     private int revision;
+    private Permissions permissions = (player, node) -> false;
+    private List<String> builtins;
+    private long ticks;
 
     /**
      * @param modelsDir  {@code config/futura3d/models}
@@ -157,6 +192,15 @@ public final class ModelServer {
 
     public PlayerStore store() {
         return store;
+    }
+
+    /** Where permission nodes are checked (default: nobody has any). */
+    public void setPermissions(Permissions permissions) {
+        this.permissions = permissions;
+    }
+
+    public Settings settings() {
+        return settings;
     }
 
     // ---- Repository ----
@@ -269,6 +313,9 @@ public final class ModelServer {
         Reload r = reloaded.getAndSet(null);
         if (r != null) {
             applyReload(r);
+        }
+        if (++ticks % Math.max(1, settings.permissionCheckTicks) == 0) {
+            recheckAccess();
         }
         int perTick = Math.max(1, settings.bytesPerSecond / 20);
         for (Map.Entry<UUID, Session> e : sessions.entrySet()) {
@@ -415,23 +462,154 @@ public final class ModelServer {
             net.send(player, new Message.ModelEntry(s.revision, m.entry.withLocked(!canUse(player, m))));
         }
         net.send(player, new Message.CatalogEnd(s.revision));
+        List<String> unlocked = accessOf(player, version);
+        if (session != null) {
+            session.access = unlocked;
+        }
+        if (Protocol.hasAccess(version)) {
+            sendAccess(player, unlocked, version);
+        }
     }
 
     // ---- Selection and permissions ----
 
+    /** The permission node of a server model: {@code futura3d.playermodel.<name in config/futura3d/models>}. */
+    public static String node(ServerModel model) {
+        return NODE_PREFIX + model.name.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** The permission node of a built-in model: {@code futura3d.playermodel.builtin.<folder, / as .>}. */
+    public static String builtinNode(String folder) {
+        return NODE_PREFIX + "builtin." + folder.replace('/', '.');
+    }
+
+    private boolean free(String key, String name) {
+        for (String f : settings.freeModels) {
+            if (f.equals(key) || name != null && f.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean permitted(UUID player, String node, String all) {
+        return permissions.has(player, node) || permissions.has(player, all) || permissions.has(player, NODE_ALL);
+    }
+
     /**
-     * Whether a player may select a model: the one permission check. Restricted models need a grant
-     * ({@code /futura3d auth}). Bukkit permission plugins are not consulted (a Thermos/Crucible bridge would go here).
+     * Whether a player may select a server model: the one check. Free models, a grant ({@code /futura3d auth}) or the
+     * permission node; without {@code requirePermission}, only restricted models need one of those.
      */
     public boolean canUse(UUID player, ServerModel model) {
-        return !model.restricted || store.get(player)
-            .hasGrant(model.name);
+        if (free(model.key(), model.name) || store.get(player)
+            .hasGrant(model.name)) {
+            return true;
+        }
+        if (!settings.requirePermission && !model.restricted) {
+            return true;
+        }
+        return permitted(player, node(model), NODE_ALL);
+    }
+
+    /** Whether a player may select a built-in model: free, its permission node, or no permissions required. */
+    public boolean canUseBuiltin(UUID player, String folder) {
+        return !settings.requirePermission || free(Protocol.BUILTIN + folder, null)
+            || permitted(player, builtinNode(folder), NODE_ALL_BUILTIN);
+    }
+
+    /** The built-in folders (the bundled index). */
+    List<String> builtins() {
+        if (builtins == null) {
+            List<String> folders;
+            try {
+                folders = com.akashic.futura.model.BuiltinIndex.read();
+            } catch (IOException e) {
+                folders = new ArrayList<>();
+            }
+            List<String> valid = new ArrayList<>();
+            for (String f : folders) {
+                if (Protocol.validBuiltin(f)) {
+                    valid.add(f);
+                }
+            }
+            builtins = valid;
+        }
+        return builtins;
+    }
+
+    /** The keys a player may select (offered server models and built-in models), sorted. */
+    List<String> accessOf(UUID player, int version) {
+        List<String> unlocked = new ArrayList<>();
+        for (String folder : builtins()) {
+            if (canUseBuiltin(player, folder)) {
+                unlocked.add(Protocol.BUILTIN + folder);
+            }
+        }
+        for (ServerModel m : snapshot.offered(version)) {
+            if (canUse(player, m)) {
+                unlocked.add(m.key());
+            }
+        }
+        Collections.sort(unlocked);
+        return unlocked;
+    }
+
+    /** {@link Message.Access} messages: the shorter of the selectable and the locked lists, in parts. */
+    private void sendAccess(UUID player, List<String> unlocked, int version) {
+        java.util.Set<String> open = new java.util.HashSet<>(unlocked);
+        List<String> locked = new ArrayList<>();
+        for (String folder : builtins()) {
+            if (!open.contains(Protocol.BUILTIN + folder)) {
+                locked.add(Protocol.BUILTIN + folder);
+            }
+        }
+        for (ServerModel m : snapshot.offered(version)) {
+            if (!open.contains(m.key())) {
+                locked.add(m.key());
+            }
+        }
+        boolean listsUnlocked = unlocked.size() <= locked.size();
+        List<String> keys = listsUnlocked ? unlocked : locked;
+        int i = 0;
+        do {
+            List<String> part = keys.subList(i, Math.min(keys.size(), i + Protocol.MAX_ACCESS_KEYS));
+            net.send(player, new Message.Access(i == 0, listsUnlocked, part));
+            i += Protocol.MAX_ACCESS_KEYS;
+        } while (i < keys.size());
+    }
+
+    /**
+     * Permissions change behind our back (a permission plugin): every {@code permissionCheckTicks}, tell each client
+     * what changed, and show the default look for a player who lost the model he wore.
+     */
+    void recheckAccess() {
+        for (Map.Entry<UUID, Session> e : sessions.entrySet()) {
+            UUID player = e.getKey();
+            Session s = e.getValue();
+            if (s.hello) {
+                List<String> unlocked = accessOf(player, s.version);
+                if (!unlocked.equals(s.access)) {
+                    if (Protocol.hasAccess(s.version)) {
+                        s.access = unlocked;
+                        sendAccess(player, unlocked, s.version);
+                    } else {
+                        sendCatalog(player); // the locked flags of the catalog
+                    }
+                }
+            }
+            Message.PlayerState state = stateOf(player);
+            String key = state.key == null ? "" : state.key;
+            if (s.roamingKey != null && !s.roamingKey.equals(key)) {
+                log.info("Model of " + player + " is no longer allowed: back to the default look");
+                broadcastState(player);
+            }
+        }
     }
 
     /** The state players see: the saved choice if it still resolves and is allowed, else the default model. */
     public Message.PlayerState stateOf(UUID player) {
         PlayerStore.Record r = store.get(player);
-        if (r.builtin != null && BuiltinModels.exists(r.builtin)) {
+        if (r.builtin != null && BuiltinModels.exists(r.builtin) && (r.forced || canUseBuiltin(player, r.builtin))) {
             return new Message.PlayerState(
                 player,
                 Protocol.BUILTIN + r.builtin,
@@ -462,7 +640,7 @@ public final class ModelServer {
             r.texture = null;
         } else if (key.startsWith(Protocol.BUILTIN)) {
             String folder = key.substring(Protocol.BUILTIN.length());
-            if (!BuiltinModels.exists(folder)) {
+            if (!BuiltinModels.exists(folder) || !canUseBuiltin(player, folder)) {
                 return false;
             }
             r.builtin = folder;
@@ -651,8 +829,8 @@ public final class ModelServer {
     }
 
     /**
-     * {@code /futura3d set <player> <model|default> [texture]}: an operator's choice, used even if the model is
-     * restricted and not granted.
+     * {@code /futura3d set <player> <model|default> [texture]}: an operator's choice, used even without the model's
+     * permission or grant.
      *
      * @param model {@code default}, {@code builtin:<folder>}, a server model's name or the start of its id
      * @return what was set
@@ -674,7 +852,7 @@ public final class ModelServer {
             r.builtin = folder;
             r.model = null;
             r.texture = checkTexture(BuiltinModels.textures(folder), texture);
-            r.forced = false;
+            r.forced = true;
             result = model;
         } else {
             ServerModel m = snapshot.find(model);
@@ -733,7 +911,8 @@ public final class ModelServer {
         }
         String what = (add ? (changed ? "granted " : "already granted ") : (changed ? "revoked " : "had no grant for "))
             + m.name;
-        return m.restricted ? what : what + " (it is not restricted: anyone may select it)";
+        return m.restricted || settings.requirePermission ? what
+            : what + " (it is not restricted: anyone may select it)";
     }
 
     /** {@code /futura3d play <player> <animation|stop>}: tells every client that sees him, and his own. */
@@ -745,11 +924,61 @@ public final class ModelServer {
         relayEmote(player, animation, true);
     }
 
+    /** Players with a session (leak checks). */
+    int sessionCount() {
+        return sessions.size();
+    }
+
+    /** {@code /futura3d access <player>}: what he may select, and the node of each model. */
+    public List<String> accessReport(UUID player) {
+        try {
+            return accessLines(player);
+        } finally {
+            if (!sessions.containsKey(player)) {
+                store.forget(player); // an offline player's record is not kept in memory
+            }
+        }
+    }
+
+    private List<String> accessLines(UUID player) {
+        List<String> lines = new ArrayList<>();
+        lines.add(
+            (settings.requirePermission ? "Permissions required" : "Only restricted models need permission")
+                + "; own skin: always allowed");
+        for (String folder : builtins()) {
+            boolean free = free(Protocol.BUILTIN + folder, null);
+            lines.add(
+                (canUseBuiltin(player, folder) ? "[allowed] " : "[locked] ") + Protocol.BUILTIN
+                    + folder
+                    + (free ? " (free)" : " - " + builtinNode(folder)));
+        }
+        for (ServerModel m : snapshot.models) {
+            boolean free = free(m.key(), m.name);
+            lines.add(
+                (canUse(player, m) ? "[allowed] " : "[locked] ") + m.name
+                    + (free ? " (free)"
+                        : " - " + node(m)
+                            + (store.get(player)
+                                .hasGrant(m.name) ? " (granted)" : "")));
+        }
+        return lines;
+    }
+
     /** {@code /futura3d list}. */
     public List<String> list() {
         List<String> lines = new ArrayList<>();
         ModelRepository.Snapshot s = snapshot;
         lines.add(s.models.size() + " server models (" + s.totalBytes() + " bytes); built-in keys: builtin:<folder>");
+        lines.add(
+            settings.requirePermission
+                ? "Selecting a model needs its node (" + NODE_PREFIX
+                    + "<model>, built-in: "
+                    + NODE_PREFIX
+                    + "builtin.<folder>, all: "
+                    + NODE_ALL
+                    + "); free: "
+                    + settings.freeModels
+                : "Only restricted models need a node or grant; free: " + settings.freeModels);
         for (ServerModel m : s.models) {
             CatalogEntry e = m.entry;
             lines.add(
@@ -764,7 +993,8 @@ public final class ModelServer {
                     + e.id.hex()
                         .substring(0, 12)
                     + ", textures "
-                    + m.textures);
+                    + m.textures
+                    + (free(m.key(), m.name) ? ", free" : ", node " + node(m)));
         }
         return lines;
     }

@@ -34,6 +34,7 @@ public final class ConnectHarness {
     private boolean shot;
     private String shotName;
     private boolean done;
+    private boolean keepScreen;
 
     private ConnectHarness(String host, int port, String model) throws FileNotFoundException {
         this.host = host;
@@ -92,7 +93,7 @@ public final class ConnectHarness {
             }
             return;
         }
-        if (mc.currentScreen != null) {
+        if (mc.currentScreen != null && !keepScreen) {
             mc.displayGuiScreen(null);
         }
         int t = ++ticks;
@@ -140,8 +141,34 @@ public final class ConnectHarness {
             report("t=18s " + ClientNetwork.INSTANCE.status());
             command("/futura3d auth " + name + " remove steve");
         } else if (t == 380) {
+            // permission nodes: without Bukkit an operator has every node and a player none; the server checks
+            // again every few seconds and tells the client (protocol 4)
+            report("as operator: " + locks());
+            command("/deop " + name);
+        } else if (t == 520) {
+            report("after /deop: " + locks());
+            ModelSelection.INSTANCE.requestLocal(LOCKED, null);
+            keepScreen = true;
+            mc.displayGuiScreen(new com.akashic.futura.client.gui.ModelPickerScreen().focus(LOCKED, null));
+        } else if (t == 560) {
+            shot("connect-picker-locked");
+        } else if (t == 580) {
+            keepScreen = false;
+            report("key after asking for a locked model: " + ModelSelection.INSTANCE.keyOf(mc.thePlayer.getUniqueID()));
+            ModelSelection.INSTANCE.requestLocal(FREE, null);
+        } else if (t == 620) {
+            report("key after asking for Steve (free): " + ModelSelection.INSTANCE.keyOf(mc.thePlayer.getUniqueID()));
+            ModelSelection.INSTANCE.requestLocal(null, null);
             finish(mc);
         }
+    }
+
+    private static final String LOCKED = "builtin:wine_fox/18_wedding";
+    private static final String FREE = "builtin:misc/2_steve";
+
+    private static String locks() {
+        com.akashic.futura.client.ModelRegistry r = com.akashic.futura.client.ModelRegistry.INSTANCE;
+        return LOCKED + " locked=" + r.isLocked(LOCKED) + ", " + FREE + " locked=" + r.isLocked(FREE);
     }
 
     private void shot(String name) {

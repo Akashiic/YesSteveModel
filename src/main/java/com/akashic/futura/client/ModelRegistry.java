@@ -77,6 +77,7 @@ public final class ModelRegistry {
     }
 
     private final Map<String, Entry> entries = new LinkedHashMap<>();
+    private final com.akashic.futura.net.ModelAccess access = new com.akashic.futura.net.ModelAccess();
     private ExecutorService executor;
     private boolean initialised;
 
@@ -109,6 +110,12 @@ public final class ModelRegistry {
             entries.put(entry.key, entry);
         }
         loadNow(DEFAULT);
+        // the default look (a player's own skin on Steve or Alex, PlayerSkins) needs both models at once
+        for (String key : new String[] { PlayerSkins.STEVE, PlayerSkins.ALEX }) {
+            if (entries.containsKey(key)) {
+                loadNow(key);
+            }
+        }
     }
 
     /**
@@ -166,7 +173,10 @@ public final class ModelRegistry {
     public void releaseUnused(java.util.Set<String> keep, java.util.Set<ClientModel> used) {
         boolean any = false;
         for (Entry entry : entries.values()) {
-            if (entry.folder == null || DEFAULT.equals(entry.key) || keep.contains(entry.key)) {
+            if (entry.folder == null || DEFAULT.equals(entry.key)
+                || PlayerSkins.STEVE.equals(entry.key)
+                || PlayerSkins.ALEX.equals(entry.key)
+                || keep.contains(entry.key)) {
                 continue;
             }
             ClientModel current = entry.current;
@@ -215,10 +225,23 @@ public final class ModelRegistry {
         return entry == null ? null : entry.info;
     }
 
-    /** Whether the local player may see but not select the model. */
+    /**
+     * Whether the local player may see but not select the model: a server model the catalog marks locked, or any
+     * model (built-in ones too) the server's access list locks (permission nodes, protocol 4).
+     */
     public boolean isLocked(String key) {
         Entry entry = key == null ? null : entries.get(key);
-        return entry != null && entry.locked;
+        return entry != null && (entry.locked || access.locked(key));
+    }
+
+    /** The server's access list (protocol 4), render thread. */
+    public void access(boolean reset, boolean listsUnlocked, List<String> keys) {
+        access.apply(reset, listsUnlocked, keys);
+    }
+
+    /** Forgets the server's access list (disconnected): nothing is locked without a server. */
+    public void clearAccess() {
+        access.clear();
     }
 
     public State state(String key) {

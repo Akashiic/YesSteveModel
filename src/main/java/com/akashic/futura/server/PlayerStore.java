@@ -148,6 +148,11 @@ public final class PlayerStore {
     }
 
     /** Drops a player's record from memory (on logout); it is read again from disk when needed. */
+    /** Records held in memory (leak checks). */
+    int cached() {
+        return cache.size();
+    }
+
     public void forget(UUID player) {
         cache.remove(player);
     }

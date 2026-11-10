@@ -56,6 +56,8 @@ class ModelServerTest {
         final Map<UUID, Map<String, Float>> roaming = new HashMap<>();
         final List<String> roamingLog = new ArrayList<>();
         final List<String> syncs = new ArrayList<>();
+        final com.akashic.futura.net.ModelAccess access = new com.akashic.futura.net.ModelAccess();
+        int accessMessages;
 
         Client(UUID id) {
             this.id = id;
@@ -132,6 +134,12 @@ class ModelServerTest {
                     + java.util.Arrays.toString(args));
         }
 
+        @Override
+        public void access(boolean reset, boolean listsUnlocked, List<String> keys) {
+            accessMessages++;
+            access.apply(reset, listsUnlocked, keys);
+        }
+
         CatalogEntry entry(String name) {
             for (CatalogEntry e : catalog) {
                 if (e.name.toLowerCase()
@@ -195,8 +203,16 @@ class ModelServerTest {
         }
     };
 
+    /** False: the older tests run without {@code requirePermission} (only restricted models need a grant). */
+    private boolean permissionMode;
+    /** The permission nodes each player has, for permission-mode tests. */
+    private final Map<UUID, Set<String>> nodes = new HashMap<>();
+
     private ModelServer newServer(ModelServer.Settings settings) {
-        return new ModelServer(
+        if (!permissionMode) {
+            settings.requirePermission = false;
+        }
+        ModelServer created = new ModelServer(
             tmp.resolve("models")
                 .toFile(),
             tmp.resolve("players")
@@ -204,6 +220,165 @@ class ModelServerTest {
             network,
             log,
             settings);
+        created.setPermissions(
+            (player, node) -> nodes.getOrDefault(player, Collections.<String>emptySet())
+                .contains(node));
+        return created;
+    }
+
+    private void grantNode(UUID player, String node) {
+        nodes.computeIfAbsent(player, k -> new HashSet<>())
+            .add(node);
+    }
+
+    /** A server where every model needs its permission node (the default settings). */
+    private void permissionServer() {
+        permissionMode = true;
+        ModelServer.Settings settings = new ModelServer.Settings();
+        settings.bytesPerSecond = 4 << 20;
+        settings.permissionCheckTicks = 10;
+        server = newServer(settings);
+        server.loadNow();
+    }
+
+    @Test
+    void playersWhoLeaveLeaveNothingInMemory() {
+        for (int i = 0; i < 500; i++) {
+            UUID p = new UUID(42, i);
+            Client c = connect(p);
+            server.received(p, new Message.Select("builtin:misc/2_steve", null));
+            server.received(p, new Message.EmoteRequest("extra0"));
+            deliver();
+            server.leave(p);
+            clients.remove(p);
+        }
+        server.accessReport(new UUID(43, 1)); // an offline player
+        server.tick();
+        assertEquals(0, server.sessionCount());
+        assertEquals(
+            0,
+            server.store()
+                .cached(),
+            "no player record stays cached after leaving");
+    }
+
+    @Test
+    void withPermissionsEveryModelIsLockedButTheFreeOnes() {
+        permissionServer();
+        Client ca = connect(a);
+        run(200);
+        assertTrue(ca.entry("alex").locked, "a server model without its node");
+        assertTrue(ca.entry("steve").locked);
+        assertTrue(ca.access.known());
+        assertTrue(ca.access.locked("builtin:wine_fox/18_wedding"), "built-in models need a node too");
+        assertTrue(ca.access.locked("builtin:default"));
+        assertFalse(ca.access.locked("builtin:misc/1_alex"), "Steve and Alex are free");
+        assertFalse(ca.access.locked("builtin:misc/2_steve"));
+        assertEquals(
+            "futura3d.playermodel.alex",
+            ModelServer.node(
+                server.snapshot()
+                    .byName("alex")));
+        assertEquals(
+            "futura3d.playermodel.builtin.wine_fox.18_wedding",
+            ModelServer.builtinNode("wine_fox/18_wedding"));
+
+        // locked selections are refused (the client hears its old state again); the own skin always works
+        ca.send(
+            new Message.Select(
+                server.snapshot()
+                    .byName("alex")
+                    .key(),
+                null));
+        deliver();
+        assertNull(ca.keys.get(a));
+        ca.send(new Message.Select("builtin:wine_fox/18_wedding", null));
+        deliver();
+        assertNull(ca.keys.get(a));
+        ca.send(new Message.Select("builtin:misc/2_steve", null));
+        deliver();
+        assertEquals("builtin:misc/2_steve", ca.keys.get(a));
+        ca.send(new Message.Select(null, null));
+        deliver();
+        assertNull(ca.keys.get(a));
+    }
+
+    @Test
+    void aNodeGrantedLaterUnlocksOnlyThatModelAndLosingItRestoresTheDefault() {
+        permissionServer();
+        Client ca = connect(a);
+        Client cb = connect(b);
+        run(200);
+        String alex = server.snapshot()
+            .byName("alex")
+            .key();
+        String steve = server.snapshot()
+            .byName("steve")
+            .key();
+        int before = ca.accessMessages;
+        grantNode(a, "futura3d.playermodel.alex");
+        grantNode(a, "futura3d.playermodel.builtin.wine_fox.18_wedding");
+        ticks(20); // a permission check
+        assertTrue(ca.accessMessages > before, "the change is sent without a reconnect");
+        assertFalse(ca.access.locked(alex));
+        assertTrue(ca.access.locked(steve), "only the granted model");
+        assertFalse(ca.access.locked("builtin:wine_fox/18_wedding"));
+        assertTrue(ca.access.locked("builtin:wine_fox/01_taisho_maid"));
+        assertTrue(cb.access.locked(alex), "only for that player");
+
+        ca.send(new Message.Select(alex, null));
+        deliver();
+        assertEquals(alex, cb.keys.get(a));
+
+        // nothing changed: no new message
+        int now = ca.accessMessages;
+        ticks(20);
+        assertEquals(now, ca.accessMessages);
+
+        // the node is taken away: back to the default look for everyone
+        nodes.get(a)
+            .remove("futura3d.playermodel.alex");
+        ticks(20);
+        assertTrue(ca.access.locked(alex));
+        assertNull(cb.keys.get(a));
+        assertNull(ca.keys.get(a));
+
+        // an operator's /futura3d set still wins
+        quietly(() -> server.set(a, "builtin:wine_fox/01_taisho_maid", null));
+        deliver();
+        ticks(20);
+        assertEquals("builtin:wine_fox/01_taisho_maid", cb.keys.get(a));
+    }
+
+    @Test
+    void wildcardsGrantsAndFreeModels() {
+        permissionServer();
+        server.settings().freeModels.add("steve");
+        Client ca = connect(a);
+        Client cb = connect(b);
+        run(200);
+        String alex = server.snapshot()
+            .byName("alex")
+            .key();
+        assertFalse(
+            ca.access.locked(
+                server.snapshot()
+                    .byName("steve")
+                    .key()),
+            "free by name");
+        grantNode(a, ModelServer.NODE_ALL);
+        grantNode(b, ModelServer.NODE_ALL_BUILTIN);
+        ticks(20);
+        assertFalse(ca.access.locked(alex));
+        assertFalse(ca.access.locked("builtin:default"));
+        assertFalse(cb.access.locked("builtin:wine_fox/18_wedding"));
+        assertTrue(cb.access.locked(alex), "the built-in wildcard is for built-in models only");
+        quietly(() -> server.auth(b, "alex", true));
+        deliver();
+        assertFalse(cb.access.locked(alex), "a grant unlocks it too");
+        assertTrue(
+            server.accessReport(b)
+                .contains("[allowed] alex - futura3d.playermodel.alex (granted)"));
     }
 
     @BeforeEach
@@ -227,6 +402,14 @@ class ModelServerTest {
                 toServer.poll()
                     .run();
             }
+        }
+    }
+
+    /** Exactly {@code n} ticks, delivering after each. */
+    private void ticks(int n) {
+        for (int t = 0; t < n; t++) {
+            server.tick();
+            deliver();
         }
     }
 

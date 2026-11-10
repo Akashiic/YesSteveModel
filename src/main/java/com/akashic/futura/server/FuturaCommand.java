@@ -18,12 +18,12 @@ import com.mojang.authlib.GameProfile;
 
 /**
  * {@code /futura3d list | reload | set <player> <model|default> [texture] | auth <player> add|remove <model> |
- * play <player> <animation|stop>}, for operators (permission level 2).
+ * access <player> | play <player> <animation|stop>}, for operators (permission level 2).
  */
 public final class FuturaCommand extends CommandBase {
 
     private static final String USAGE = "/futura3d list | reload | set <player> <model|default|builtin:<folder>> [texture]"
-        + " | auth <player> add|remove <model> | play <player> <animation|stop>";
+        + " | auth <player> add|remove <model> | access <player> | play <player> <animation|stop>";
 
     @Override
     public String getCommandName() {
@@ -85,6 +85,19 @@ public final class FuturaCommand extends CommandBase {
                     tell(sender, args[1] + ": " + what, EnumChatFormatting.GREEN);
                     break;
                 }
+                case "access": {
+                    if (args.length != 2) {
+                        throw new WrongUsageException("/futura3d access <player>");
+                    }
+                    for (String line : server.accessReport(uuid(sender, args[1]))) {
+                        tell(
+                            sender,
+                            line,
+                            line.startsWith("[locked]") ? EnumChatFormatting.RED
+                                : line.startsWith("[allowed]") ? EnumChatFormatting.GREEN : null);
+                    }
+                    break;
+                }
                 case "play": {
                     if (args.length != 3) {
                         throw new WrongUsageException("/futura3d play <player> <animation|stop>");
@@ -137,7 +150,7 @@ public final class FuturaCommand extends CommandBase {
     @Override
     public List<String> addTabCompletionOptions(ICommandSender sender, String[] args) {
         if (args.length == 1) {
-            return getListOfStringsMatchingLastWord(args, "list", "reload", "set", "auth", "play");
+            return getListOfStringsMatchingLastWord(args, "list", "reload", "set", "auth", "access", "play");
         }
         if (args.length == 2 && !args[0].equals("list") && !args[0].equals("reload")) {
             return getListOfStringsMatchingLastWord(

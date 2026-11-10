@@ -8,6 +8,12 @@ dependencies {
     // com.akashic.futura.shadow (relocateShadowedDependencies), so it cannot clash with another mod's copy.
     shadowImplementation("io.github.jaredmdobson:concentus:1.0.2")
 
+    // Development only (-Pangelica): runs the client with Angelica, the renderer of the GTNH packs, to check the models
+    // against it. Never a dependency of the release jar.
+    if (project.hasProperty("angelica")) {
+        runtimeOnlyNonPublishable("com.github.GTNewHorizons:Angelica:2.2.43:dev")
+    }
+
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
 }

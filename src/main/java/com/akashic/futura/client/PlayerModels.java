@@ -105,7 +105,21 @@ public final class PlayerModels {
             return forced;
         }
         String key = player == null ? null : ModelSelection.INSTANCE.keyOf(player.getUniqueID());
-        return key == null ? ModelRegistry.DEFAULT : key;
+        // no model chosen: his own skin on the Steve or Alex model (PlayerSkins)
+        return key == null ? PlayerSkins.INSTANCE.modelKey(player) : key;
+    }
+
+    /**
+     * Whether a player is drawn with his own skin: he chose no model, or the one he chose is still loading (he is
+     * drawn as Steve/Alex meanwhile), and the skin is ready on that model.
+     */
+    boolean ownSkin(EntityPlayer player, ClientModel drawn) {
+        if (forced != null || player == null) {
+            return false;
+        }
+        String chosen = ModelSelection.INSTANCE.keyOf(player.getUniqueID());
+        boolean fallback = chosen == null || ModelRegistry.INSTANCE.get(chosen) == null;
+        return fallback && PlayerSkins.INSTANCE.hasSkin(player, drawn);
     }
 
     /** The texture stem selected for a player, or null for his model's default. */
@@ -116,7 +130,14 @@ public final class PlayerModels {
     /** The model a player is drawn with now: his model if ready, else the default model (null before start-up). */
     public ClientModel modelOf(EntityPlayer player) {
         ClientModel model = ModelRegistry.INSTANCE.get(keyOf(player));
-        return model != null ? model : ModelRegistry.INSTANCE.get(ModelRegistry.DEFAULT);
+        if (model != null) {
+            return model;
+        }
+        // his model is loading: Steve/Alex with his skin, else the default model
+        ClientModel skin = forced == null && player != null
+            ? ModelRegistry.INSTANCE.get(PlayerSkins.INSTANCE.modelKey(player))
+            : null;
+        return skin != null ? skin : ModelRegistry.INSTANCE.get(ModelRegistry.DEFAULT);
     }
 
     /** The local player's model now (the default model without a world). */
@@ -137,7 +158,13 @@ public final class PlayerModels {
 
     /** The texture of a player's model (render thread: uploads it on first use). */
     public ResourceLocation textureOf(ClientModel model, EntityPlayer player) {
-        return model == null ? null : model.texture(model.skin(textureOf(player)));
+        if (model == null) {
+            return null;
+        }
+        if (ownSkin(player, model)) {
+            return PlayerSkins.INSTANCE.texture(player);
+        }
+        return model.texture(model.skin(textureOf(player)));
     }
 
     /**
@@ -176,10 +203,11 @@ public final class PlayerModels {
             // in a replaced vehicle the player sits at its base (upstream RenderUtil.adjustPassengerPosition)
             y = EntityReplacements.INSTANCE.passengerY(player, y, pt);
         }
+        boolean own = ownSkin(player, model);
         thirdPerson.render(
             player,
-            model.renderer(skin),
-            model.texture(skin),
+            own ? PlayerSkins.INSTANCE.renderer(player, model) : model.renderer(skin),
+            own ? PlayerSkins.INSTANCE.texture(player) : model.texture(skin),
             model.loaded.widthScale,
             model.loaded.heightScale,
             model.loaded.manifest.properties.renderLayersFirst,
@@ -255,6 +283,11 @@ public final class PlayerModels {
             }
         }
         return used;
+    }
+
+    /** Players with an animator (leak checks of the harness). */
+    public int animatorCount() {
+        return animators.size();
     }
 
     /** Drops the animators and frames of models that were freed (server models after a disconnect). */

@@ -129,7 +129,362 @@ public final class RenderHarness {
         viewSteps();
         langSteps();
         replacementSteps();
+        skinSteps();
+        remoteSteps();
+        diagnoseSteps();
+        leakSteps();
         onlySteps();
+    }
+
+    // Memory ("only leak"): 30 other players come into view with a model and leave; after a GC none of them may stay
+    // in memory (a player entity keeps its whole world: a proxy switch would keep the old one).
+    private final List<java.lang.ref.WeakReference<net.minecraft.entity.Entity>> spawned = new ArrayList<>();
+    private int leakSpawn;
+
+    private void leakSteps() {
+        for (int i = 0; i < 3; i++) {
+            step("leak-spawn" + i, () -> {
+                PlayerModels.INSTANCE.setEnabled(true);
+                PlayerModels.INSTANCE.use("default");
+                look(0, 0, 18);
+                leakSpawn = 1;
+            });
+        }
+        // the server catalog reset again and again (as a proxy switch or /futura3d reload does): models, display lists
+        // and textures must come back to the same counts
+        for (int i = 0; i < 6; i++) {
+            final int round = i;
+            step("leak-reload" + i, () -> {
+                Minecraft mc = Minecraft.getMinecraft();
+                MinecraftServer server = MinecraftServer.getServer();
+                PlayerModels.INSTANCE.force(null);
+                if (round == 0) {
+                    server.getCommandManager()
+                        .executeCommand(
+                            server,
+                            "futura3d set " + mc.thePlayer.getCommandSenderName() + " " + diagModel());
+                } else {
+                    server.getCommandManager()
+                        .executeCommand(server, "futura3d reload");
+                }
+                view(2, 0);
+                atShot = () -> {
+                    System.gc();
+                    Runtime rt = Runtime.getRuntime();
+                    report(
+                        "leak reload " + round
+                            + ": model "
+                            + PlayerModels.INSTANCE.keyOf(mc.thePlayer)
+                            + ", display lists "
+                            + com.akashic.futura.client.render.GeometryRenderer.liveLists()
+                            + ", textures "
+                            + com.akashic.futura.client.render.ModelTexture.live()
+                            + ", heap used "
+                            + (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+                            + " MiB");
+                };
+            });
+            step("leak-reload" + i + "-wait", () -> view(2, 0));
+        }
+        step("leak-check", () -> {
+            leakSpawn = 0;
+            removeFake();
+            atShot = () -> {
+                for (int i = 0; i < 4; i++) {
+                    System.gc();
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread()
+                            .interrupt();
+                    }
+                }
+                int alive = 0;
+                for (java.lang.ref.WeakReference<net.minecraft.entity.Entity> r : spawned) {
+                    alive += r.get() == null ? 0 : 1;
+                }
+                Runtime rt = Runtime.getRuntime();
+                report(
+                    "leak: " + alive
+                        + " of "
+                        + spawned.size()
+                        + " removed players still in memory; animators "
+                        + PlayerModels.INSTANCE.animatorCount()
+                        + ", replacement states "
+                        + com.akashic.futura.client.EntityReplacements.INSTANCE.stateCount()
+                        + ", heap used "
+                        + (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+                        + " MiB");
+                if (alive > 0 && Boolean.getBoolean("futura3d.harness.heapdump")) {
+                    try {
+                        java.lang.management.ManagementFactory
+                            .newPlatformMXBeanProxy(
+                                java.lang.management.ManagementFactory.getPlatformMBeanServer(),
+                                "com.sun.management:type=HotSpotDiagnostic",
+                                com.sun.management.HotSpotDiagnosticMXBean.class)
+                            .dumpHeap(new File(mc().mcDataDir, "futura3d-leak.hprof").getPath(), true);
+                        report("leak: heap dump written");
+                    } catch (Exception e) {
+                        report("leak: heap dump failed " + e);
+                    }
+                }
+            };
+        });
+    }
+
+    private static Minecraft mc() {
+        return Minecraft.getMinecraft();
+    }
+
+    /** One more other player each tick while a leak step runs (the previous one leaves the world). */
+    private void leakTick() {
+        if (leakSpawn == 0 || spawned.size() >= 30 || ticks % 4 != 0) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        removeFake();
+        fake = new EntityOtherPlayerMP(mc.theWorld, new GameProfile(java.util.UUID.randomUUID(), "leak"));
+        fake.setPositionAndRotation(0.5, 4 + fake.yOffset, 3.5, 0, 0);
+        // as S0CPacketSpawnPlayer does: no id before addEntityToWorld (vanilla then lost the entity in entityList for
+        // good; WorldClientEntityIdMixin gives the id first)
+        mc.theWorld.addEntityToWorld(FAKE_ID, fake);
+        spawned.add(new java.lang.ref.WeakReference<>(fake));
+    }
+
+    // A server model from run/client/config/futura3d/models/<name> ("only diag", name in futura3d-harness-model,
+    // default "yae"): bones the animation leaves broken (NaN, infinite or hidden) and the model's variables.
+    private void diagnoseSteps() {
+        step("diag-front", () -> {
+            Minecraft mc = Minecraft.getMinecraft();
+            MinecraftServer server = MinecraftServer.getServer();
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.force(null);
+            server.getCommandManager()
+                .executeCommand(server, "futura3d set " + mc.thePlayer.getCommandSenderName() + " " + diagModel());
+            view(2, 0);
+            atShot = this::diagnose;
+        });
+        for (int i = 0; i < 4; i++) {
+            step("diag-wait" + i, () -> view(2, 0));
+        }
+        step("diag-later", () -> {
+            view(2, 0);
+            atShot = this::diagnose;
+        });
+        step("diag-face", () -> {
+            view(2, 20);
+            atShot = this::diagnose;
+        });
+        step("diag-walk", () -> {
+            view(2, 0);
+            keys(true, false, false, false);
+            atShot = this::diagnose;
+        });
+        step("diag-turn", () -> {
+            keys(false, false, false, false);
+            view(2, 120);
+            atShot = this::diagnose;
+        });
+        step("diag-end", () -> {
+            keys(false, false, false, false);
+            Minecraft mc = Minecraft.getMinecraft();
+            MinecraftServer server = MinecraftServer.getServer();
+            server.getCommandManager()
+                .executeCommand(server, "futura3d set " + mc.thePlayer.getCommandSenderName() + " default");
+        });
+    }
+
+    private static String diagModel() {
+        File f = new File(Minecraft.getMinecraft().mcDataDir, "futura3d-harness-model");
+        try {
+            return new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8)
+                .trim();
+        } catch (java.io.IOException e) {
+            return "yae";
+        }
+    }
+
+    private void diagnose() {
+        Minecraft mc = Minecraft.getMinecraft();
+        com.akashic.futura.client.ClientModel m = PlayerModels.INSTANCE.modelOf(mc.thePlayer);
+        com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE.animator(mc.thePlayer);
+        if (m == null || a == null) {
+            report("diag: no model/animator");
+            return;
+        }
+        report("diag: model " + m.key + " state " + a.mainState());
+        com.akashic.futura.geo.BakedGeometry g = m.loaded.main;
+        float[] v = a.pose().values;
+        StringBuilder bad = new StringBuilder();
+        for (int i = 0; i < g.bones.length && (i + 1) * 9 <= v.length; i++) {
+            boolean broken = false;
+            for (int k = 0; k < 9; k++) {
+                broken |= Float.isNaN(v[i * 9 + k]) || Float.isInfinite(v[i * 9 + k]);
+            }
+            if (broken || a.pose()
+                .hidden(i)) {
+                bad.append(g.bones[i].name)
+                    .append(broken ? "(NaN/inf)" : "(hidden)")
+                    .append(' ');
+            }
+        }
+        report("diag: broken or hidden bones: " + bad);
+        com.akashic.futura.molang.MolangVariables vars = a.variables();
+        StringBuilder vs = new StringBuilder();
+        for (String n : new String[] { "l7_p0", "l7_p0dot", "l7_k1", "l7_k2", "l7_k3", "l8_p0", "l1_p0", "l4_p0" }) {
+            vs.append(n)
+                .append('=')
+                .append(vars.getOrNull(n))
+                .append(' ');
+        }
+        report("diag: variables " + vs);
+    }
+
+    // Other players as a 1.7.10 client sees them ("only remote"): moved by position updates, onGround never set.
+    // Before the fix their models hung in the jump pose and slid instead of walking.
+    private void remoteSteps() {
+        step("remote-walk", () -> {
+            fakeItem(false, null, false, 90);
+            PlayerModels.INSTANCE.use("default");
+            fakeWalk = 1;
+            atShot = () -> report("remote walking: " + remoteState());
+        });
+        step("remote-stand", () -> {
+            fakeWalk = 0;
+            atShot = () -> report("remote standing: " + remoteState());
+        });
+        step("remote-hover", () -> {
+            fakeWalk = 2;
+            atShot = () -> report("remote hovering in the air: " + remoteState());
+        });
+        step("remote-end", () -> {
+            fakeWalk = 0;
+            removeFake();
+        });
+        // swimming (1.13+): sprinting with the eyes under water, the YSM "swim" state
+        step("swim-remote", () -> {
+            pool(true);
+            fakeItem(false, null, false, 90);
+            look(0, 0, 50);
+            PlayerModels.INSTANCE.use("default");
+            fakeWalk = 3;
+            atShot = () -> report("remote sprinting under water: " + remoteState());
+        });
+        step("swim-stop", () -> {
+            fakeWalk = 4;
+            atShot = () -> report("remote in water, not sprinting: " + remoteState());
+        });
+        step("swim-end", () -> {
+            fakeWalk = 0;
+            removeFake();
+            pool(false);
+        });
+    }
+
+    /** A pool dug 3 blocks deep at the second player's spot (server world, flat ground under y 4), or filled back. */
+    private void pool(boolean water) {
+        MinecraftServer server = MinecraftServer.getServer();
+        if (server == null) {
+            return;
+        }
+        net.minecraft.world.World w = server.worldServerForDimension(0);
+        for (int x = -3; x <= 3; x++) {
+            for (int z = 1; z <= 6; z++) {
+                for (int y = 1; y <= 3; y++) {
+                    w.setBlock(
+                        x,
+                        y,
+                        z,
+                        water ? net.minecraft.init.Blocks.water
+                            : y == 3 ? net.minecraft.init.Blocks.grass : net.minecraft.init.Blocks.dirt);
+                }
+            }
+        }
+    }
+
+    private String remoteState() {
+        com.akashic.futura.anim.PlayerAnimator a = fake == null ? null : PlayerModels.INSTANCE.animator(fake);
+        return "state " + (a == null ? "?" : a.mainState())
+            + ", entity onGround "
+            + (fake == null ? "?" : fake.onGround);
+    }
+
+    // The default look: the player's own skin on the Steve/Alex model ("only skin"). A synthetic skin painted by
+    // body part (head red, body green, right arm blue, left arm yellow, right leg cyan, left leg magenta, second
+    // layer white rims) shows where each part of the skin lands on the YSM skeleton.
+    private void skinSteps() {
+        step("skin-steve-front", () -> {
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.force(null);
+            com.akashic.futura.client.ModelSelection.INSTANCE.requestLocal(null, null);
+            com.akashic.futura.client.PlayerSkins.INSTANCE
+                .setTestSkin(Minecraft.getMinecraft().thePlayer, testSkin(false), false);
+            view(2, 0);
+            atShot = () -> report("skin model " + PlayerModels.INSTANCE.keyOf(Minecraft.getMinecraft().thePlayer));
+        });
+        step("skin-steve-back", () -> view(1, 30));
+        step("skin-alex-front", () -> {
+            com.akashic.futura.client.PlayerSkins.INSTANCE
+                .setTestSkin(Minecraft.getMinecraft().thePlayer, testSkin(true), true);
+            view(2, 0);
+            atShot = () -> report("skin model " + PlayerModels.INSTANCE.keyOf(Minecraft.getMinecraft().thePlayer));
+        });
+        step("skin-alex-side", () -> view(2, 90));
+        step("skin-legacy-64x32", () -> {
+            java.awt.image.BufferedImage full = testSkin(false);
+            com.akashic.futura.client.PlayerSkins.INSTANCE
+                .setTestSkin(Minecraft.getMinecraft().thePlayer, full.getSubimage(0, 0, 64, 32), false);
+            view(2, 0);
+        });
+        step("skin-none", () -> {
+            com.akashic.futura.client.PlayerSkins.INSTANCE.setTestSkin(Minecraft.getMinecraft().thePlayer, null, false);
+            view(2, 0);
+            atShot = () -> report(
+                "no skin: model " + PlayerModels.INSTANCE.keyOf(Minecraft.getMinecraft().thePlayer)
+                    + " with its own texture");
+        });
+        step("skin-end", () -> {
+            PlayerModels.INSTANCE.use("default");
+            view(2, 0);
+        });
+    }
+
+    /** A 64x64 skin painted by part (slim: 3-pixel arms). */
+    private static java.awt.image.BufferedImage testSkin(boolean slim) {
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+            64,
+            64,
+            java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        int arm = slim ? 14 : 16;
+        Object[][] parts = { { 0, 0, 32, 16, 0xFFD03030 }, // head
+            { 16, 16, 24, 16, 0xFF30A030 }, // body
+            { 40, 16, arm, 16, 0xFF3050D0 }, // right arm
+            { 32, 48, arm, 16, 0xFFE0D030 }, // left arm
+            { 0, 16, 16, 16, 0xFF30C0C0 }, // right leg
+            { 16, 48, 16, 16, 0xFFC030C0 } }; // left leg
+        for (Object[] p : parts) {
+            g.setColor(new java.awt.Color((Integer) p[4], true));
+            g.fillRect((Integer) p[0], (Integer) p[1], (Integer) p[2], (Integer) p[3]);
+        }
+        // the face (front of the head: 8..16, 8..16): eyes and a mouth
+        g.setColor(java.awt.Color.WHITE);
+        g.fillRect(9, 11, 2, 1);
+        g.fillRect(13, 11, 2, 1);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillRect(10, 11, 1, 1);
+        g.fillRect(13, 11, 1, 1);
+        g.fillRect(11, 14, 2, 1);
+        // second layer: white rims (hat band, jacket hem, sleeve and trouser cuffs)
+        g.setColor(java.awt.Color.WHITE);
+        g.fillRect(32, 14, 32, 2); // hat band
+        g.fillRect(16, 46, 24, 2); // jacket hem
+        g.fillRect(40, 46, arm, 2); // right sleeve cuff
+        g.fillRect(48, 62, arm, 2); // left sleeve cuff
+        g.fillRect(0, 46, 16, 2); // right trouser cuff
+        g.fillRect(0, 62, 16, 2); // left trouser cuff
+        g.dispose();
+        return img;
     }
 
     // Etapa 6: the first-person camera height from the model (ViewLocator, else Head). Steps "view-*".
@@ -1144,6 +1499,11 @@ public final class RenderHarness {
     private EntityOtherPlayerMP fake;
     private float fakeYaw;
     private int fakeHurt;
+    /**
+     * The second player moved like a network player: 0 still, 1 walking along x, 2 hovering 2 blocks up, 3 sprinting
+     * under water, 4 still under water.
+     */
+    private int fakeWalk;
     private boolean fakeDying;
     private ItemStack fakeUse;
     private boolean holdUse;
@@ -1392,6 +1752,7 @@ public final class RenderHarness {
     /** Every tick: the use key, the second player's yaw, bow and hurt time. */
     private void itemTick() {
         Minecraft mc = Minecraft.getMinecraft();
+        leakTick();
         if (ticks == 5 && atTick5 != null) {
             Runnable r = atTick5;
             atTick5 = null;
@@ -1409,6 +1770,20 @@ public final class RenderHarness {
             fake.rotationYawHead = fake.prevRotationYawHead = fakeYaw;
             fake.renderYawOffset = fake.prevRenderYawOffset = fakeYaw;
             fake.onGround = true;
+            if (fakeWalk >= 3) {
+                fake.setSprinting(fakeWalk == 3);
+                fake.setPositionAndRotation2(1.5 - 0.03 * ticks, 1.4, 3.5, fakeYaw, 0, 3);
+                fake.onGround = false;
+            } else if (fakeWalk > 0) {
+                // as NetHandlerPlayClient moves him: an interpolation target, and 1.7.10 never sets his ground
+                double x = fakeWalk == 1 ? 2.5 - 0.1 * ticks : 0.5;
+                fake.setPositionAndRotation2(x, fakeWalk == 2 ? 6 : 4, 3.5, fakeYaw, 0, 3);
+                fake.onGround = false;
+            } else if (index >= 0 && index < names.size()
+                && names.get(index)
+                    .startsWith("remote")) {
+                        fake.onGround = false;
+                    }
             if (fakeUse != null && fake.getItemInUseCount() < 2) {
                 fake.setItemInUse(fakeUse, fakeUse.getMaxItemUseDuration());
             }

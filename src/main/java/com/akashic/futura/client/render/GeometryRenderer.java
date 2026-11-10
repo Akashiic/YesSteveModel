@@ -38,6 +38,8 @@ public final class GeometryRenderer {
      * their fixed emission order instead of back to front.
      */
     public static boolean sortTranslucent = true;
+    /** Display lists allocated and not deleted, by every renderer (leak checks). */
+    private static int liveLists;
 
     private final BakedGeometry geometry;
     private final byte[][] partitions;
@@ -103,6 +105,7 @@ public final class GeometryRenderer {
     private void compile() {
         BakedGeometry.Bone[] bones = geometry.bones;
         listBase = GL11.glGenLists(Math.max(1, bones.length * P));
+        liveLists += Math.max(1, bones.length * P);
         Tessellator t = Tessellator.instance;
         for (int i = 0; i < bones.length; i++) {
             float[] q = bones[i].quads;
@@ -350,9 +353,15 @@ public final class GeometryRenderer {
     }
 
     /** Frees the display lists. */
+    /** Display lists allocated and not deleted (render thread; leak checks). */
+    public static int liveLists() {
+        return liveLists;
+    }
+
     public void delete() {
         if (listBase >= 0) {
             GL11.glDeleteLists(listBase, Math.max(1, geometry.bones.length * P));
+            liveLists -= Math.max(1, geometry.bones.length * P);
             listBase = -1;
         }
     }
