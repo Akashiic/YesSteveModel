@@ -1,4 +1,4 @@
-### Modelos `.ysm` legados: carregador nativo e leitura em memória
+# Etapa 6, item 1: modelos `.ysm` legados (carregador nativo, leitura em memória)
 
 | Upstream | Aqui |
 |---|---|
