@@ -170,13 +170,14 @@ public final class GeometryRenderer {
         GL11.glEnable(GL11.GL_NORMALIZE);
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         GL11.glDepthMask(true);
-        // Drawn back faces are lit from their own side (upstream reverses their normal).
-        GL11.glLightModeli(GL11.GL_LIGHT_MODEL_TWO_SIDE, GL11.GL_TRUE);
 
         // Opaque.
         GL11.glDisable(GL11.GL_BLEND);
         GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
         pass(pose, attributes, FacePartition.OPAQUE_CULL, r, g, b, a, lastX, lastY);
+        // From here back faces can be drawn: they are lit from their own side (upstream reverses their normal). Not
+        // needed above, where they are culled by the same winding test.
+        GL11.glLightModeli(GL11.GL_LIGHT_MODEL_TWO_SIDE, GL11.GL_TRUE);
         pass(pose, attributes, FacePartition.OPAQUE, r, g, b, a, lastX, lastY);
 
         if (translucent != null) {
@@ -325,7 +326,6 @@ public final class GeometryRenderer {
             compile();
         }
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_LIGHTING_BIT);
-        GL11.glLightModeli(GL11.GL_LIGHT_MODEL_TWO_SIDE, GL11.GL_TRUE);
         for (int p = 0; p < P; p++) {
             if (FacePartition.translucent(p)) {
                 continue;
@@ -334,6 +334,7 @@ public final class GeometryRenderer {
                 GL11.glEnable(GL11.GL_CULL_FACE);
             } else {
                 GL11.glDisable(GL11.GL_CULL_FACE);
+                GL11.glLightModeli(GL11.GL_LIGHT_MODEL_TWO_SIDE, GL11.GL_TRUE);
             }
             for (int i = 0; i < geometry.bones.length; i++) {
                 if (has[i * P + p] && pose.visible(i)) {
