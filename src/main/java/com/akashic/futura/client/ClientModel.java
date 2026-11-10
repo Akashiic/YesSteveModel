@@ -26,8 +26,8 @@ import com.akashic.futura.model.ModelSource;
  * (display lists, uploaded textures) made on the render thread on first draw and freed by {@link #release}.
  *
  * <p>
- * Each texture has its own face partitions (opaque and translucent faces come from that texture's alpha); textures
- * with the same partitions share one set of display lists.
+ * Each texture has its own face partitions and snapped UVs (opaque and translucent faces come from that texture's
+ * alpha, {@link FacePartition#bake}); textures with the same partitions and UVs share one renderer.
  */
 public final class ClientModel {
 
@@ -41,7 +41,7 @@ public final class ClientModel {
     public final ClientReplacements replacements;
 
     private final Skin[] skins;
-    private final byte[][][] partitions;
+    private final FacePartition.Baked[] partitions;
     private final GeometryRenderer[] renderers;
     private final int defaultSkin;
     private GeometryRenderer armRenderer;
@@ -76,7 +76,8 @@ public final class ClientModel {
     private static final ResourceLocation MISSING = new ResourceLocation(Futura3D.MODID, "missing_model_texture");
 
     private ClientModel(String key, LoadedModel loaded, ModelInfo info, ModelAnimations animations,
-        ModelAnimations arms, Skin[] skins, byte[][][] partitions, int defaultSkin, ClientReplacements replacements) {
+        ModelAnimations arms, Skin[] skins, FacePartition.Baked[] partitions, int defaultSkin,
+        ClientReplacements replacements) {
         this.key = key;
         this.loaded = loaded;
         this.info = info;
@@ -110,7 +111,7 @@ public final class ClientModel {
         }
         List<String> paths = loaded.textures;
         Skin[] skins = new Skin[paths.size()];
-        byte[][][] partitions = new byte[paths.size()][][];
+        FacePartition.Baked[] partitions = new FacePartition.Baked[paths.size()];
         int distinct = 0;
         String defaultPath = loaded.defaultTexture();
         int defaultSkin = 0;
@@ -127,10 +128,10 @@ public final class ClientModel {
             }
             // The same image gives the face partitions and, for models outside the resource packs, the texture.
             FacePartition.Alpha alpha = image == null ? null : FacePartition.Alpha.of(image);
-            byte[][] parts = FacePartition.classify(loaded.main, alpha, loaded.manifest.properties.forceCulling);
+            FacePartition.Baked parts = FacePartition.bake(loaded.main, alpha, loaded.manifest.properties.forceCulling);
             int index = -1;
             for (int j = 0; j < distinct; j++) {
-                if (Arrays.deepEquals(partitions[j], parts)) {
+                if (partitions[j].equals(parts)) {
                     index = j;
                     break;
                 }
