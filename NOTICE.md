@@ -11,7 +11,7 @@ Changes made in this fork:
 
 * the project was moved to Minecraft Forge 1.7.10 (Java 8 bytecode); the upstream 1.20 code remains unchanged on
   branch `dev/1.20`, and files brought over from it are adapted and say so in their header;
-* the native library and its legacy `.ysm` importer are not used: only the open authoring format is read;
+* - the official native library (YesSteveModel-Native, Apache-2.0) is retained to support loading legacy binary .ysm models strictly in-memory alongside the open authoring format;
 * the built-in models `wine_fox/09_hailuo`, `wine_fox/10_zhiban` and `wine_fox/17_mini` (All Rights Reserved) were
   removed; the remaining built-in models are under `assets/futura3d/builtin` and keep the licence and authors written
   in each `ysm.json` (CC0 or CC BY-NC-SA 4.0); they are not covered by the Apache License;
