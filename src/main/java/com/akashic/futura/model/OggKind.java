@@ -2,7 +2,10 @@ package com.akashic.futura.model;
 
 import java.nio.charset.StandardCharsets;
 
-/** What a sound file is, from its first Ogg page: 1.7.10's sound system (JOrbis) only decodes Vorbis. */
+/**
+ * What a sound file is, from its first Ogg page: Vorbis goes to 1.7.10's own codec (JOrbis), Opus to the mod's
+ * ({@code client/CodecOggOpus}, Concentus).
+ */
 public final class OggKind {
 
     public static final String VORBIS = "vorbis";

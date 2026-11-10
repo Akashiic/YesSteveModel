@@ -15,7 +15,7 @@ public final class SoundBytesUrl {
 
     private SoundBytesUrl() {}
 
-    /** @param identifier a name ending in {@code .ogg} (paulscode picks the codec by the extension) */
+    /** @param identifier a name ending in {@code .ogg} or {@code .opus} (paulscode picks the codec by the extension) */
     public static URL of(String identifier, byte[] data) throws IOException {
         return new URL(null, "futura3d:" + identifier, new Handler(data));
     }

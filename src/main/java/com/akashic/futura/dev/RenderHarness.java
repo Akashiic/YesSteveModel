@@ -194,7 +194,7 @@ public final class RenderHarness {
             atTick5 = () -> {
                 PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer)
                     .playExtra("dooble");
-                reportSounds("momo, dooble started (an Ogg Opus file: skipped)");
+                reportSounds("momo, dooble started (an Ogg Opus file, streamed through CodecOggOpus)");
             };
         });
         step("ctrl-end", () -> {
