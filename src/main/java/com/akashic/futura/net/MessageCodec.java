@@ -28,7 +28,7 @@ import com.akashic.futura.model.ModelSource;
  * <pre>
  * S_HELLO        int version, int revision, int modelCount, uuid self (the player's UUID on the server)
  * S_MODEL        int revision, hash id, str name, str tips, str license, u8 n, n × str author,
- *                u8 flags (1 restricted, 2 locked), u16 n, n × (str path, int size, hash)
+ *                u8 flags (1 restricted, 2 locked, 4 memory only: version 3), u16 n, n × (str path, int size, hash)
  * S_CATALOG_END  int revision
  * S_CHUNK        hash, int total, int offset, int length, length bytes
  * S_UNAVAILABLE  hash
@@ -186,7 +186,7 @@ public final class MessageCodec {
         for (String a : e.authors) {
             writeString(a, Protocol.MAX_AUTHOR_BYTES, out);
         }
-        out.writeByte((e.restricted ? 1 : 0) | (e.locked ? 2 : 0));
+        out.writeByte((e.restricted ? 1 : 0) | (e.locked ? 2 : 0) | (e.memoryOnly ? 4 : 0));
         check(!e.files.isEmpty() && e.files.size() <= Protocol.MAX_FILES, "file count");
         out.writeShort(e.files.size());
         for (FileRef f : e.files) {
@@ -405,7 +405,7 @@ public final class MessageCodec {
             authors.add(printable(readString(in, Protocol.MAX_AUTHOR_BYTES), "author"));
         }
         int flags = in.readUnsignedByte();
-        range(flags, 0, 3, "flags");
+        range(flags, 0, 7, "flags");
         int fileCount = in.readUnsignedShort();
         range(fileCount, 1, Protocol.MAX_FILES, "file count");
         List<FileRef> files = new ArrayList<>(fileCount);
@@ -431,7 +431,16 @@ public final class MessageCodec {
             .equals(id)) {
             throw new ProtocolException("Model id does not match its files");
         }
-        return new CatalogEntry(id, name, tips, license, authors, (flags & 1) != 0, (flags & 2) != 0, files);
+        return new CatalogEntry(
+            id,
+            name,
+            tips,
+            license,
+            authors,
+            (flags & 1) != 0,
+            (flags & 2) != 0,
+            (flags & 4) != 0,
+            files);
     }
 
     /** A path as {@link ModelSource#clean} leaves it, without empty parts or control characters. */

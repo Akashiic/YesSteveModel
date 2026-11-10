@@ -27,11 +27,21 @@ public final class CatalogEntry {
     public final boolean restricted;
     /** The receiving player may see the model on others but not select it. */
     public final boolean locked;
+    /**
+     * The files may be kept only in memory, never in the client's disk cache: a model the server converted from a
+     * legacy {@code .ysm} (protocol 3; such models are not offered to older clients).
+     */
+    public final boolean memoryOnly;
     /** Files, sorted by path. */
     public final List<FileRef> files;
 
     public CatalogEntry(Sha256 id, String name, String tips, String license, List<String> authors, boolean restricted,
         boolean locked, List<FileRef> files) {
+        this(id, name, tips, license, authors, restricted, locked, false, files);
+    }
+
+    public CatalogEntry(Sha256 id, String name, String tips, String license, List<String> authors, boolean restricted,
+        boolean locked, boolean memoryOnly, List<FileRef> files) {
         this.id = id;
         this.name = name;
         this.tips = tips;
@@ -39,6 +49,7 @@ public final class CatalogEntry {
         this.authors = Collections.unmodifiableList(new ArrayList<>(authors));
         this.restricted = restricted;
         this.locked = locked;
+        this.memoryOnly = memoryOnly;
         List<FileRef> sorted = new ArrayList<>(files);
         sorted.sort(BY_PATH);
         this.files = Collections.unmodifiableList(sorted);
@@ -47,7 +58,7 @@ public final class CatalogEntry {
     /** The same entry with another locked flag (the catalog is per player). */
     public CatalogEntry withLocked(boolean locked) {
         return locked == this.locked ? this
-            : new CatalogEntry(id, name, tips, license, authors, restricted, locked, files);
+            : new CatalogEntry(id, name, tips, license, authors, restricted, locked, memoryOnly, files);
     }
 
     /** {@code server:<id>}, the key of this model in the client's registry and in player states. */

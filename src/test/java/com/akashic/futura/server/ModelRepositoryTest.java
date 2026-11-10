@@ -61,7 +61,7 @@ class ModelRepositoryTest {
         assertFalse(alex.restricted);
         assertTrue(s.byName("steve").restricted);
         assertNotNull(s.byName("boy"));
-        assertTrue(logged(s, "Skipped", "secret.ysm: encrypted .ysm"));
+        assertTrue(logged(s, "Skipped", "secret.ysm: not a .ysm"));
         assertTrue(logged(s, "Skipped", "notes.txt"));
         assertTrue(logged(s, "Skipped", "has space"));
 
@@ -162,5 +162,74 @@ class ModelRepositoryTest {
             assertFalse(paths.contains("link.json"));
         }
         assertNull(s.byName("missing"));
+    }
+
+    /**
+     * Legacy .ysm files: a v2 bundle (pure Java) and an encrypted v3 (the native loader, here the synthetic export of
+     * native/test/native_test.cc through a stub decoder) are converted in memory and marked memory only; clients
+     * before protocol 3 are neither offered them nor sent their own files.
+     */
+    @Test
+    void readsLegacyYsmAsMemoryOnly() throws IOException {
+        Path models = tmp.resolve("models");
+        Files.createDirectories(models);
+        ServerTestSupport.copyFolder("misc/2_steve", models.resolve("steve"));
+        Files.write(
+            models.resolve("alex.ysm"),
+            com.akashic.futura.model.legacy.LegacyTestSupport
+                .bundle(2, com.akashic.futura.model.legacy.LegacyTestSupport.builtin("misc/1_alex"), 9));
+        Files.write(
+            models.resolve("synthetic.ysm"),
+            new byte[] { (byte) 0xEF, (byte) 0xBB, (byte) 0xBF, 'Y', 'S', 'G', 'P', 0, 3, 0, 0, 0 });
+        byte[] export = com.akashic.futura.model.legacy.LegacyTestSupport.syntheticExport();
+        ModelRepository.Snapshot s = new ModelRepository(new ModelLimits(), 512L << 20, file -> export)
+            .scan(models.toFile(), 1);
+        assertEquals(3, s.models.size(), String.valueOf(s.log));
+        ServerModel alex = s.byName("alex");
+        ServerModel synthetic = s.byName("synthetic");
+        assertTrue(alex.entry.memoryOnly);
+        assertTrue(synthetic.entry.memoryOnly);
+        assertFalse(s.byName("steve").entry.memoryOnly);
+        assertTrue(logged(s, "Loaded", "memory only"));
+        assertEquals(java.util.Collections.singletonList("skin"), synthetic.textures);
+
+        assertEquals(
+            3,
+            s.offered(3)
+                .size());
+        assertEquals(
+            1,
+            s.offered(2)
+                .size());
+        FileRef ysmJson = null;
+        for (FileRef f : synthetic.entry.files) {
+            if (f.path.equals("ysm.json")) {
+                ysmJson = f;
+            }
+        }
+        assertNotNull(ysmJson);
+        assertNotNull(s.content(ysmJson.hash, 3));
+        assertNull(s.content(ysmJson.hash, 2));
+        // a file the open model also has stays available to everyone
+        for (FileRef f : s.byName("steve").entry.files) {
+            assertNotNull(s.content(f.hash, 2), f.path);
+        }
+    }
+
+    /** Without the native loader an encrypted .ysm is skipped with the reason; bundles still load. */
+    @Test
+    void skipsEncryptedYsmWithoutTheNativeLoader() throws IOException {
+        Path models = tmp.resolve("models");
+        Files.createDirectories(models);
+        Files.write(
+            models.resolve("v3.ysm"),
+            new byte[] { (byte) 0xEF, (byte) 0xBB, (byte) 0xBF, 'Y', 'S', 'G', 'P', 0, 3, 0, 0, 0 });
+        ModelRepository.Snapshot s = new ModelRepository(
+            new ModelLimits(),
+            512L << 20,
+            file -> { throw new IOException("native loader unavailable (UNSUPPORTED_PLATFORM: test)"); })
+                .scan(models.toFile(), 1);
+        assertEquals(0, s.models.size());
+        assertTrue(logged(s, "Skipped v3.ysm", "native loader unavailable"));
     }
 }

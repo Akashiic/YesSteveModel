@@ -94,6 +94,9 @@ public final class ClientSession {
     private final Set<Sha256> waitingModels = new HashSet<>();
     private final Map<Sha256, Integer> sizes = new HashMap<>();
     private final Set<Sha256> stored = new HashSet<>();
+    /** Files of memory-only models (and of no other model of the catalog): never written to {@link #cache}. */
+    private final VolatileFileCache memory = new VolatileFileCache();
+    private final Set<Sha256> memoryOnly = new HashSet<>();
     private final Set<Sha256> failed = new HashSet<>();
     private final Deque<Sha256> needed = new ArrayDeque<>();
     private final Map<Sha256, Assembly> inflight = new LinkedHashMap<>();
@@ -104,6 +107,36 @@ public final class ClientSession {
         this.cache = cache;
         this.out = out;
         this.listener = listener;
+    }
+
+    /**
+     * Where the files of the catalog's models are read from: memory first (memory-only models), then the disk cache.
+     * Hand this to {@link CachedModelSource}.
+     */
+    public FileCache files() {
+        return new FileCache() {
+
+            @Override
+            public boolean has(Sha256 hash, int size) {
+                return memory.has(hash, size) || cache.has(hash, size);
+            }
+
+            @Override
+            public byte[] read(Sha256 hash) throws IOException {
+                byte[] data = memory.read(hash);
+                return data != null ? data : cache.read(hash);
+            }
+
+            @Override
+            public void store(Sha256 hash, byte[] data) {
+                throw new UnsupportedOperationException("the session stores files");
+            }
+        };
+    }
+
+    /** Files held in memory for memory-only models (for tests and the harness). */
+    public int memoryFiles() {
+        return memory.size();
     }
 
     /** Says hello. On a server without the mod nothing answers, and the session stays waiting. */
@@ -262,6 +295,24 @@ public final class ClientSession {
             }
             accepted.add(e);
         }
+        // Memory-only files: used by a memory-only model and by no model the disk cache may hold.
+        memoryOnly.clear();
+        Set<Sha256> shareable = new HashSet<>();
+        Set<Sha256> referenced = new HashSet<>();
+        for (CatalogEntry e : accepted) {
+            for (FileRef f : e.files) {
+                referenced.add(f.hash);
+                (e.memoryOnly ? memoryOnly : shareable).add(f.hash);
+            }
+        }
+        memoryOnly.removeAll(shareable);
+        // Memory-only files of models no longer in the catalog are dropped, and must be fetched again if they return.
+        for (Sha256 hash : new ArrayList<>(stored)) {
+            if (!referenced.contains(hash) && memory.read(hash) != null) {
+                stored.remove(hash);
+            }
+        }
+        memory.retainAll(referenced);
         listener.catalogReset(accepted);
         for (CatalogEntry e : rejected) {
             listener.modelFailed(e, "repeated model, conflicting file sizes, or the catalog is too big");
@@ -269,7 +320,7 @@ public final class ClientSession {
         Set<Sha256> queued = new HashSet<>();
         for (CatalogEntry e : accepted) {
             for (FileRef f : e.files) {
-                if (stored.contains(f.hash) || cache.has(f.hash, f.size)) {
+                if (stored.contains(f.hash) || memory.has(f.hash, f.size) || cache.has(f.hash, f.size)) {
                     stored.add(f.hash);
                 } else if (queued.add(f.hash)) {
                     needed.add(f.hash);
@@ -335,7 +386,11 @@ public final class ClientSession {
             return;
         }
         try {
-            cache.store(c.hash, a.data);
+            if (memoryOnly.contains(c.hash)) {
+                memory.store(c.hash, a.data);
+            } else {
+                cache.store(c.hash, a.data);
+            }
         } catch (IOException e) {
             fail(c.hash, "cannot store a file in the cache: " + e.getMessage());
             return;

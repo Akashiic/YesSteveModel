@@ -29,6 +29,7 @@ import com.akashic.futura.net.CachedModelSource;
 import com.akashic.futura.net.CatalogEntry;
 import com.akashic.futura.net.ClientSession;
 import com.akashic.futura.net.DiskFileCache;
+import com.akashic.futura.net.FileCache;
 import com.akashic.futura.net.FileRef;
 import com.akashic.futura.net.Message;
 import com.akashic.futura.net.MessageCodec;
@@ -392,8 +393,10 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
 
     @Override
     public void modelReady(CatalogEntry entry) {
-        // The files are verified; check them by kind off the client thread, then register on it.
+        // The files are verified; check them by kind off the client thread, then register on it. Memory-only models
+        // (legacy .ysm) are read from the session's memory, the others from the disk cache.
         int gen = generation;
+        FileCache files = session.files();
         if (worker == null) {
             worker = Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "futura3d model check");
@@ -402,7 +405,7 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
             });
         }
         worker.execute(() -> {
-            String problem = check(entry);
+            String problem = check(entry, files);
             mainThread.add(() -> {
                 if (gen != generation) {
                     return;
@@ -416,16 +419,16 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
                 contract(
                     "register",
                     () -> ModelRegistry.INSTANCE
-                        .registerServerModel(entry.key(), new CachedModelSource(entry, cache), entry.locked));
+                        .registerServerModel(entry.key(), new CachedModelSource(entry, files), entry.locked));
             });
         });
     }
 
-    private String check(CatalogEntry entry) {
+    private String check(CatalogEntry entry, FileCache source) {
         try {
             Map<String, byte[]> files = new TreeMap<>();
             for (FileRef f : entry.files) {
-                byte[] data = cache.read(f.hash);
+                byte[] data = source.read(f.hash);
                 if (data == null) {
                     return f.path + " is missing from the cache";
                 }

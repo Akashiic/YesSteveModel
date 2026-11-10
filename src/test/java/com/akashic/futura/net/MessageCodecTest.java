@@ -62,6 +62,20 @@ class MessageCodecTest {
 
         CatalogEntry e = entry(files());
         Message.ModelEntry me = (Message.ModelEntry) roundTrip(new Message.ModelEntry(7, e.withLocked(true)));
+        CatalogEntry memoryOnly = new CatalogEntry(
+            e.id,
+            e.name,
+            e.tips,
+            e.license,
+            e.authors,
+            false,
+            false,
+            true,
+            e.files);
+        Message.ModelEntry mo = (Message.ModelEntry) roundTrip(new Message.ModelEntry(8, memoryOnly.withLocked(true)));
+        assertTrue(mo.entry.memoryOnly);
+        assertTrue(mo.entry.locked);
+        assertFalse(mo.entry.restricted);
         assertEquals(7, me.revision);
         assertEquals(e.id, me.entry.id);
         assertEquals("Modelo ✓", me.entry.name);

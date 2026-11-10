@@ -30,6 +30,9 @@ import com.akashic.futura.format.pojo.manifest.metadata.ModelAuthor;
 import com.akashic.futura.format.pojo.manifest.metadata.ModelMetadata;
 import com.akashic.futura.model.LoadedModel;
 import com.akashic.futura.model.ModelSource;
+import com.akashic.futura.model.legacy.LegacyLayout;
+import com.akashic.futura.model.legacy.LegacyYsm;
+import com.akashic.futura.natives.LegacyNative;
 import com.akashic.futura.net.CatalogEntry;
 import com.akashic.futura.net.FileRef;
 import com.akashic.futura.net.Message;
@@ -40,9 +43,11 @@ import com.akashic.futura.net.Sha256;
 
 /**
  * Reads the server's models: {@code models/} (anyone may select them) and {@code models/auth/} (selecting needs a
- * grant), each a folder or a {@code .zip} in the open authoring format ({@code ysm.json} spec 2). Every model is read
- * into memory within {@link ModelLimits}, then parsed with the real loader; anything else (encrypted {@code .ysm}
- * exports included) is skipped with a line in {@link Snapshot#log}. No Minecraft classes.
+ * grant), each a folder or a {@code .zip} in the open authoring format ({@code ysm.json} spec 2, or the 1.x layout),
+ * or a legacy {@code .ysm} file. Every model is read into memory within {@link ModelLimits}, then parsed with the real
+ * loader; anything else is skipped with a line in {@link Snapshot#log}. A {@code .ysm} is converted in memory (v1/v2
+ * bundles in Java, encrypted v3 through the native loader) and marked {@link CatalogEntry#memoryOnly}: its files stay
+ * in memory on the server and on clients. No Minecraft classes.
  */
 public final class ModelRepository {
 
@@ -53,12 +58,22 @@ public final class ModelRepository {
     /** Folder depth walked inside a model folder. */
     public static final int MAX_DEPTH = 16;
 
+    /** Upstream's {@code kLegacySourceByteLimit}: the largest {@code .ysm} file read. */
+    public static final int MAX_YSM_BYTES = 69_206_016;
+
     private final ModelLimits limits;
     private final long maxTotalBytes;
+    private final LegacyYsm.V3Decoder v3;
 
     public ModelRepository(ModelLimits limits, long maxTotalBytes) {
+        this(limits, maxTotalBytes, LegacyNative::convert);
+    }
+
+    /** @param v3 decodes encrypted v3 {@code .ysm} files (the native loader; a stub in tests) */
+    public ModelRepository(ModelLimits limits, long maxTotalBytes, LegacyYsm.V3Decoder v3) {
         this.limits = limits;
         this.maxTotalBytes = maxTotalBytes;
+        this.v3 = v3;
     }
 
     /** The models of one scan. Immutable. */
@@ -72,6 +87,8 @@ public final class ModelRepository {
         private final Map<String, ServerModel> byName = new HashMap<>();
         private final Map<Sha256, ServerModel> byId = new HashMap<>();
         private final Map<Sha256, byte[]> content = new HashMap<>();
+        /** Hashes no model offered to every client has: only memory-only (legacy .ysm) models use them. */
+        private final java.util.Set<Sha256> memoryOnly = new java.util.HashSet<>();
         private final long totalBytes;
 
         Snapshot(int revision, List<ServerModel> models, List<String> log) {
@@ -91,6 +108,11 @@ public final class ModelRepository {
                 }
             }
             this.totalBytes = total;
+            java.util.Set<Sha256> shareable = new java.util.HashSet<>();
+            for (ServerModel m : sorted) {
+                (m.entry.memoryOnly ? memoryOnly : shareable).addAll(m.content.keySet());
+            }
+            memoryOnly.removeAll(shareable);
         }
 
         public static Snapshot empty() {
@@ -109,6 +131,28 @@ public final class ModelRepository {
         /** A file's bytes, or null if no model has it. */
         public byte[] content(Sha256 hash) {
             return content.get(hash);
+        }
+
+        /**
+         * A file's bytes for a client speaking {@code version}: clients before {@link Protocol#MEMORY_ONLY_VERSION}
+         * do not get the files only memory-only models use (they would write them to their disk cache).
+         */
+        public byte[] content(Sha256 hash, int version) {
+            return !Protocol.hasMemoryOnly(version) && memoryOnly.contains(hash) ? null : content.get(hash);
+        }
+
+        /** The models offered to a client speaking {@code version}. */
+        public List<ServerModel> offered(int version) {
+            if (Protocol.hasMemoryOnly(version)) {
+                return models;
+            }
+            List<ServerModel> list = new ArrayList<>();
+            for (ServerModel m : models) {
+                if (!m.entry.memoryOnly) {
+                    list.add(m);
+                }
+            }
+            return list;
         }
 
         /** Distinct bytes held in memory. */
@@ -172,14 +216,12 @@ public final class ModelRepository {
             }
             String label = (restricted ? AUTH + "/" : "") + fileName;
             boolean zip = entry.isFile() && lower.endsWith(".zip");
-            if (!entry.isDirectory() && !zip) {
-                log.add(
-                    "Skipped " + label
-                        + (lower.endsWith(".ysm") ? ": encrypted .ysm exports are not supported (use the open format)"
-                            : ": not a model folder or .zip"));
+            boolean ysm = entry.isFile() && lower.endsWith(".ysm");
+            if (!entry.isDirectory() && !zip && !ysm) {
+                log.add("Skipped " + label + ": not a model folder, .zip or .ysm");
                 continue;
             }
-            String name = zip ? fileName.substring(0, fileName.length() - 4) : fileName;
+            String name = zip || ysm ? fileName.substring(0, fileName.length() - 4) : fileName;
             if (name.isEmpty() || !Protocol.printable(name) || name.contains(" ")) {
                 log.add("Skipped " + label + ": the name has spaces or control characters");
                 continue;
@@ -189,7 +231,7 @@ public final class ModelRepository {
                 continue;
             }
             try {
-                ServerModel model = read(entry, name, zip, restricted);
+                ServerModel model = ysm ? readYsm(entry, name, restricted) : read(entry, name, zip, restricted);
                 ServerModel same = sameFiles(models, model);
                 if (same != null) {
                     log.add("Skipped " + label + ": the same files as " + same.name);
@@ -206,7 +248,7 @@ public final class ModelRepository {
                 total[0] += added;
                 models.add(model);
                 byName.put(name.toLowerCase(Locale.ROOT), model);
-                log.add("Loaded " + label + ": " + model.entry);
+                log.add("Loaded " + label + ": " + model.entry + (model.entry.memoryOnly ? ", memory only" : ""));
             } catch (IOException | RuntimeException e) {
                 log.add("Skipped " + label + ": " + e.getMessage());
             }
@@ -225,7 +267,39 @@ public final class ModelRepository {
 
     /** Reads, validates and describes one model. */
     ServerModel read(File entry, String name, boolean zip, boolean restricted) throws IOException {
-        Map<String, byte[]> files = rebase(zip ? readZip(entry) : readFolder(entry.toPath()));
+        Map<String, byte[]> files = zip ? readZip(entry) : readFolder(entry.toPath());
+        if (LegacyLayout.applies(files)) {
+            LegacyLayout.addManifest(files);
+        }
+        return describe(rebase(files), name, restricted, false);
+    }
+
+    /** Reads a legacy {@code .ysm}: converted in memory, the result validated like any model, memory only. */
+    ServerModel readYsm(File entry, String name, boolean restricted) throws IOException {
+        long length = entry.length();
+        if (length > MAX_YSM_BYTES) {
+            throw new IOException("over " + MAX_YSM_BYTES + " bytes");
+        }
+        byte[] data = java.nio.file.Files.readAllBytes(entry.toPath());
+        LegacyYsm.Kind kind = LegacyYsm.probe(data);
+        Map<String, byte[]> converted = LegacyYsm.read(data, v3, limits.maxFileBytes, limits.maxModelBytes);
+        Map<String, byte[]> files = new TreeMap<>();
+        long[] total = { 0 };
+        for (Map.Entry<String, byte[]> f : converted.entrySet()) {
+            String path = ModelSource.clean(f.getKey());
+            if (path.isEmpty() || ignored(path) || !ModelLimits.transferable(path)) {
+                continue;
+            }
+            if (files.containsKey(path)) {
+                throw new IOException("repeated file " + path + " in the " + kind + " .ysm");
+            }
+            add(files, path, f.getValue(), total);
+        }
+        return describe(files, name, restricted, true);
+    }
+
+    private ServerModel describe(Map<String, byte[]> files, String name, boolean restricted, boolean memoryOnly)
+        throws IOException {
         MemorySource source = new MemorySource(name, files);
         LoadedModel loaded = limits.validate(files, source);
 
@@ -260,6 +334,7 @@ public final class ModelRepository {
             authors,
             restricted,
             false,
+            memoryOnly,
             refs);
         int encoded;
         try {
