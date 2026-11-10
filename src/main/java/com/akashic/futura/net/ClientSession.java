@@ -51,6 +51,12 @@ public final class ClientSession {
         void state(UUID player, String key, String texture);
 
         void emote(UUID player, String name);
+
+        /** Version 2: a player's roaming variables ({@code reset}: forget his others first). */
+        default void roaming(UUID player, boolean reset, java.util.Map<String, Float> values) {}
+
+        /** Version 2: a player's model ran {@code ysm.sync(args)} (the local player's own come back too). */
+        default void sync(UUID player, float[] args) {}
     }
 
     private enum Phase {
@@ -73,6 +79,8 @@ public final class ClientSession {
     private final Output out;
     private final Listener listener;
     private Phase phase = Phase.WAITING;
+    /** The version of the last hello sent; lowered once if the server only speaks an older one. */
+    private int version = Protocol.VERSION;
     private UUID selfOnServer;
     private UUID localPlayer;
 
@@ -100,7 +108,17 @@ public final class ClientSession {
 
     /** Says hello. On a server without the mod nothing answers, and the session stays waiting. */
     public void start() {
-        out.send(new Message.ClientHello(Protocol.VERSION));
+        out.send(new Message.ClientHello(version));
+    }
+
+    /** The protocol version spoken with this server (meaningful once {@link #connected}). */
+    public int version() {
+        return version;
+    }
+
+    /** Whether the server takes roaming variables and {@code ysm.sync} (connected with version 2 or later). */
+    public boolean hasRoaming() {
+        return phase == Phase.CONNECTED && Protocol.hasRoaming(version);
     }
 
     /**
@@ -176,13 +194,31 @@ public final class ClientSession {
                 listener.emote(map(e.player), e.name);
                 break;
             }
+            case Protocol.S_ROAMING:
+                if (Protocol.hasRoaming(version)) {
+                    Message.Roaming r = (Message.Roaming) m;
+                    listener.roaming(map(r.player), r.reset, r.values);
+                }
+                break;
+            case Protocol.S_SYNC:
+                if (Protocol.hasRoaming(version)) {
+                    Message.Sync sync = (Message.Sync) m;
+                    listener.sync(map(sync.player), sync.args);
+                }
+                break;
             default:
                 break;
         }
     }
 
     private void hello(Message.ServerHello h) {
-        if (h.version != Protocol.VERSION) {
+        if (h.version != version) {
+            if (phase == Phase.WAITING && h.version < version && Protocol.speaks(h.version)) {
+                // An older server answered with its own version alone: say hello again in its version.
+                version = h.version;
+                out.send(new Message.ClientHello(version));
+                return;
+            }
             phase = Phase.INCOMPATIBLE;
             listener.incompatible(h.version);
             return;

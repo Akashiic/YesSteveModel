@@ -17,6 +17,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.network.NetHandlerPlayServer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.WorldServer;
+import net.minecraftforge.common.MinecraftForge;
 
 import com.akashic.futura.Futura3D;
 import com.akashic.futura.ModNetwork;
@@ -65,6 +66,7 @@ public final class ForgeModelServer implements ModelServer.Network, ModelServer.
         FMLCommonHandler.instance()
             .bus()
             .register(events);
+        MinecraftForge.EVENT_BUS.register(events);
     }
 
     public static void start(FMLServerStartingEvent event) {
@@ -225,6 +227,15 @@ public final class ForgeModelServer implements ModelServer.Network, ModelServer.
         public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
             if (current != null) {
                 current.server.leave(event.player.getUniqueID());
+            }
+        }
+
+        /** After the spawn packet of the target: what he plays and his roaming variables. */
+        @SubscribeEvent
+        public void onStartTracking(net.minecraftforge.event.entity.player.PlayerEvent.StartTracking event) {
+            if (current != null && event.entityPlayer instanceof EntityPlayerMP
+                && event.target instanceof EntityPlayerMP) {
+                current.server.startTracking(event.entityPlayer.getUniqueID(), event.target.getUniqueID());
             }
         }
 

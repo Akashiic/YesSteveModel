@@ -88,10 +88,21 @@ public final class ModelServer {
     static final class Session {
 
         boolean hello;
+        /** The protocol version of his hello. */
+        int version = Protocol.VERSION;
         int errors;
         final TransferQueue queue;
         final RateLimit selects = new RateLimit(1, 4);
         final RateLimit emotes = new RateLimit(2, 6);
+        /** Roaming messages: a slider dragged sends a few per second. */
+        final RateLimit roamingUpdates = new RateLimit(10, 20);
+        final RateLimit syncs = new RateLimit(10, 20);
+        /** The extra animation he plays, as last announced (null: none), for players who start seeing him. */
+        String emote;
+        /** His roaming variables, for players who start seeing him; cleared when his model changes. */
+        final Map<String, Float> roaming = new LinkedHashMap<>();
+        /** The model key his roaming variables belong to ({@code ""} for the default model). */
+        String roamingKey;
 
         Session(int maxQueued) {
             queue = new TransferQueue(maxQueued);
@@ -259,6 +270,8 @@ public final class ModelServer {
             Session s = e.getValue();
             s.selects.tick();
             s.emotes.tick();
+            s.roamingUpdates.tick();
+            s.syncs.tick();
             if (s.hello) {
                 UUID to = e.getKey();
                 s.queue.tick(perTick, snapshot::content, m -> net.send(to, m));
@@ -309,13 +322,24 @@ public final class ModelServer {
                     relayEmote(from, ((Message.EmoteRequest) m).name, false);
                 }
                 break;
+            case Protocol.C_ROAMING:
+                if (Protocol.hasRoaming(s.version) && s.roamingUpdates.take()) {
+                    Message.RoamingUpdate r = (Message.RoamingUpdate) m;
+                    roaming(from, s, r.reset, r.values);
+                }
+                break;
+            case Protocol.C_SYNC:
+                if (Protocol.hasRoaming(s.version) && s.syncs.take()) {
+                    relaySync(from, ((Message.SyncRequest) m).args);
+                }
+                break;
             default:
                 break;
         }
     }
 
     private void hello(UUID from, Session s, Message.ClientHello h) {
-        if (h.version != Protocol.VERSION) {
+        if (!Protocol.speaks(h.version)) {
             // Our hello alone tells the client which version we speak; nothing else follows.
             net.send(from, new Message.ServerHello(Protocol.VERSION, snapshot.revision, 0, from));
             return;
@@ -324,6 +348,7 @@ public final class ModelServer {
             return;
         }
         s.hello = true;
+        s.version = h.version;
         sendCatalog(from);
         List<Message.PlayerState> states = new ArrayList<>();
         for (UUID player : sessions.keySet()) {
@@ -334,7 +359,9 @@ public final class ModelServer {
 
     private void sendCatalog(UUID player) {
         ModelRepository.Snapshot s = snapshot;
-        net.send(player, new Message.ServerHello(Protocol.VERSION, s.revision, s.models.size(), player));
+        Session session = sessions.get(player);
+        int version = session == null ? Protocol.VERSION : session.version;
+        net.send(player, new Message.ServerHello(version, s.revision, s.models.size(), player));
         for (ServerModel m : s.models) {
             net.send(player, new Message.ModelEntry(s.revision, m.entry.withLocked(!canUse(player, m))));
         }
@@ -424,7 +451,17 @@ public final class ModelServer {
     }
 
     private void broadcastState(UUID player) {
-        List<Message.PlayerState> one = Collections.singletonList(stateOf(player));
+        Message.PlayerState state = stateOf(player);
+        Session session = sessions.get(player);
+        if (session != null) {
+            // Roaming variables belong to a model: a new model starts without them (clients forget them too).
+            String key = state.key == null ? "" : state.key;
+            if (session.roamingKey != null && !session.roamingKey.equals(key)) {
+                session.roaming.clear();
+            }
+            session.roamingKey = key;
+        }
+        List<Message.PlayerState> one = Collections.singletonList(state);
         for (UUID to : moddedPlayers()) {
             sendStates(to, one);
         }
@@ -437,6 +474,10 @@ public final class ModelServer {
     }
 
     private void relayEmote(UUID player, String name, boolean includeSelf) {
+        Session session = sessions.get(player);
+        if (session != null) {
+            session.emote = name;
+        }
         Message emote = new Message.Emote(player, name);
         for (UUID to : net.trackers(player)) {
             if (!to.equals(player) && hasMod(to)) {
@@ -445,6 +486,95 @@ public final class ModelServer {
         }
         if (includeSelf && hasMod(player)) {
             net.send(player, emote);
+        }
+    }
+
+    // ---- Roaming variables and ysm.sync (version 2) ----
+
+    /** A player's roaming update: kept (at most {@link Protocol#MAX_ROAMING_VARIABLES}) and passed to his viewers. */
+    void roaming(UUID player, Session s, boolean reset, Map<String, Float> values) {
+        if (reset) {
+            s.roaming.clear();
+        }
+        Map<String, Float> accepted = new LinkedHashMap<>();
+        for (Map.Entry<String, Float> e : values.entrySet()) {
+            if (s.roaming.containsKey(e.getKey()) || s.roaming.size() < Protocol.MAX_ROAMING_VARIABLES) {
+                s.roaming.put(e.getKey(), e.getValue());
+                accepted.put(e.getKey(), e.getValue());
+            }
+        }
+        if (accepted.isEmpty() && !reset) {
+            return;
+        }
+        Message out = new Message.Roaming(player, reset, accepted);
+        for (UUID to : net.trackers(player)) {
+            if (!to.equals(player) && hasRoaming(to)) {
+                net.send(to, out);
+            }
+        }
+    }
+
+    /** A player's {@code ysm.sync}: to everyone who sees him, and back to him (upstream does the same). */
+    void relaySync(UUID player, float[] args) {
+        Message out = new Message.Sync(player, args);
+        for (UUID to : net.trackers(player)) {
+            if (!to.equals(player) && hasRoaming(to)) {
+                net.send(to, out);
+            }
+        }
+        if (hasRoaming(player)) {
+            net.send(player, out);
+        }
+    }
+
+    private boolean hasRoaming(UUID player) {
+        Session s = sessions.get(player);
+        return s != null && s.hello && Protocol.hasRoaming(s.version);
+    }
+
+    /** The roaming variables the server holds for a player (a copy; empty when unknown). */
+    public Map<String, Float> roamingOf(UUID player) {
+        Session s = sessions.get(player);
+        return s == null ? Collections.<String, Float>emptyMap() : new LinkedHashMap<>(s.roaming);
+    }
+
+    /** The extra animation a player plays as last announced, or null. */
+    public String emoteOf(UUID player) {
+        Session s = sessions.get(player);
+        return s == null ? null : s.emote;
+    }
+
+    /**
+     * {@code viewer}'s client starts tracking {@code target} (Forge's {@code PlayerEvent.StartTracking}, after the
+     * entity's spawn packet): the emote {@code target} plays and his roaming variables, so someone who comes close in
+     * the middle of an emote sees it (from its start: the elapsed time is not sent).
+     */
+    public void startTracking(UUID viewer, UUID target) {
+        if (viewer.equals(target) || !hasMod(viewer)) {
+            return;
+        }
+        Session t = sessions.get(target);
+        if (t == null) {
+            return;
+        }
+        if (t.emote != null) {
+            net.send(viewer, new Message.Emote(target, t.emote));
+        }
+        if (hasRoaming(viewer)) {
+            List<Map.Entry<String, Float>> all = new ArrayList<>(t.roaming.entrySet());
+            int i = 0;
+            do {
+                Map<String, Float> part = new LinkedHashMap<>();
+                for (int n = 0; n < Protocol.MAX_ROAMING_PER_MESSAGE && i < all.size(); n++, i++) {
+                    part.put(
+                        all.get(i)
+                            .getKey(),
+                        all.get(i)
+                            .getValue());
+                }
+                // The first message resets: the viewer may hold stale values from an earlier encounter.
+                net.send(viewer, new Message.Roaming(target, i <= Protocol.MAX_ROAMING_PER_MESSAGE, part));
+            } while (i < all.size());
         }
     }
 

@@ -12,7 +12,9 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -36,7 +38,16 @@ import com.akashic.futura.model.ModelSource;
  * C_REQUEST      u16 n, n × hash
  * C_SELECT       nstr key (null: default model), nstr texture, bool initial (the saved local choice on joining)
  * C_EMOTE        nstr name (null: stop)
+ * version 2:
+ * S_ROAMING      uuid, bool reset, u8 n, n × (str name, float value)
+ * S_SYNC         uuid, u8 n, n × float
+ * C_ROAMING      bool reset, u8 n, n × (str name, float value)
+ * C_SYNC         u8 n, n × float
  * </pre>
+ *
+ * Roaming names are checked with {@link Protocol#validRoamingName} and not repeated in a message, at most
+ * {@link Protocol#MAX_ROAMING_PER_MESSAGE} per message; every float is finite; a sync has at most
+ * {@link Protocol#MAX_SYNC_ARGS} arguments. Never Molang source: names and numbers only.
  *
  * Decoding checks every limit of {@link Protocol} before allocating, rejects trailing bytes, messages from the wrong
  * side and unknown types, and checks a catalog entry's id against its files.
@@ -138,6 +149,28 @@ public final class MessageCodec {
             case Protocol.C_EMOTE:
                 writeNullable(((Message.EmoteRequest) m).name, Protocol.MAX_ANIMATION_BYTES, out);
                 break;
+            case Protocol.S_ROAMING: {
+                Message.Roaming r = (Message.Roaming) m;
+                writeUuid(r.player, out);
+                out.writeBoolean(r.reset);
+                writeRoaming(r.values, out);
+                break;
+            }
+            case Protocol.S_SYNC: {
+                Message.Sync sync = (Message.Sync) m;
+                writeUuid(sync.player, out);
+                writeFloats(sync.args, out);
+                break;
+            }
+            case Protocol.C_ROAMING: {
+                Message.RoamingUpdate r = (Message.RoamingUpdate) m;
+                out.writeBoolean(r.reset);
+                writeRoaming(r.values, out);
+                break;
+            }
+            case Protocol.C_SYNC:
+                writeFloats(((Message.SyncRequest) m).args, out);
+                break;
             default:
                 throw new IllegalArgumentException("Unknown message type " + m.type());
         }
@@ -161,6 +194,31 @@ public final class MessageCodec {
             out.writeInt(f.size);
             f.hash.writeTo(out);
         }
+    }
+
+    private static void writeRoaming(Map<String, Float> values, DataOutputStream out) throws IOException {
+        check(values.size() <= Protocol.MAX_ROAMING_PER_MESSAGE, "too many roaming variables");
+        out.writeByte(values.size());
+        for (Map.Entry<String, Float> e : values.entrySet()) {
+            check(Protocol.validRoamingName(e.getKey()), "bad roaming name " + e.getKey());
+            check(e.getValue() != null && finite(e.getValue()), "roaming value not finite");
+            writeString(e.getKey(), Protocol.MAX_ROAMING_NAME_BYTES, out);
+            out.writeFloat(e.getValue());
+        }
+    }
+
+    private static void writeFloats(float[] values, DataOutputStream out) throws IOException {
+        check(values.length <= Protocol.MAX_SYNC_ARGS, "too many sync arguments");
+        out.writeByte(values.length);
+        for (float v : values) {
+            check(finite(v), "sync argument not finite");
+            out.writeFloat(v);
+        }
+    }
+
+    /** Whether a float is neither NaN nor infinite (Java 8 has no {@code Float.isFinite} on every target). */
+    public static boolean finite(float v) {
+        return !Float.isNaN(v) && !Float.isInfinite(v);
     }
 
     private static void writeUuid(UUID id, DataOutputStream out) throws IOException {
@@ -315,6 +373,21 @@ public final class MessageCodec {
             }
             case Protocol.C_EMOTE:
                 return new Message.EmoteRequest(readName(in, Protocol.MAX_ANIMATION_BYTES));
+            case Protocol.S_ROAMING: {
+                UUID player = readUuid(in);
+                boolean reset = readBool(in);
+                return new Message.Roaming(player, reset, readRoaming(in));
+            }
+            case Protocol.S_SYNC: {
+                UUID player = readUuid(in);
+                return new Message.Sync(player, readFloats(in));
+            }
+            case Protocol.C_ROAMING: {
+                boolean reset = readBool(in);
+                return new Message.RoamingUpdate(reset, readRoaming(in));
+            }
+            case Protocol.C_SYNC:
+                return new Message.SyncRequest(readFloats(in));
             default:
                 throw new ProtocolException("Unknown message type " + type);
         }
@@ -372,6 +445,43 @@ public final class MessageCodec {
         } catch (IOException e) {
             return false;
         }
+    }
+
+    private static boolean readBool(DataInputStream in) throws IOException {
+        int b = in.readUnsignedByte();
+        range(b, 0, 1, "boolean");
+        return b == 1;
+    }
+
+    private static Map<String, Float> readRoaming(DataInputStream in) throws IOException {
+        int count = in.readUnsignedByte();
+        range(count, 0, Protocol.MAX_ROAMING_PER_MESSAGE, "roaming count");
+        Map<String, Float> values = new LinkedHashMap<>();
+        for (int i = 0; i < count; i++) {
+            String name = readString(in, Protocol.MAX_ROAMING_NAME_BYTES);
+            if (!Protocol.validRoamingName(name) || values.containsKey(name)) {
+                throw new ProtocolException("Bad or repeated roaming name");
+            }
+            float value = in.readFloat();
+            if (!finite(value)) {
+                throw new ProtocolException("Roaming value not finite");
+            }
+            values.put(name, value);
+        }
+        return values;
+    }
+
+    private static float[] readFloats(DataInputStream in) throws IOException {
+        int count = in.readUnsignedByte();
+        range(count, 0, Protocol.MAX_SYNC_ARGS, "sync argument count");
+        float[] values = new float[count];
+        for (int i = 0; i < count; i++) {
+            values[i] = in.readFloat();
+            if (!finite(values[i])) {
+                throw new ProtocolException("Sync argument not finite");
+            }
+        }
+        return values;
     }
 
     private static String readKey(DataInputStream in) throws IOException {

@@ -75,6 +75,18 @@ class ClientSessionTest {
             events.add("emote " + name);
         }
 
+        @Override
+        public void roaming(UUID p, boolean reset, Map<String, Float> values) {
+            players.add(p);
+            events.add("roaming " + reset + " " + values);
+        }
+
+        @Override
+        public void sync(UUID p, float[] args) {
+            players.add(p);
+            events.add("sync " + Arrays.toString(args));
+        }
+
         List<Sha256> requested() {
             List<Sha256> out = new ArrayList<>();
             for (Message m : sent) {
@@ -305,5 +317,52 @@ class ClientSessionTest {
         assertFalse(r.events.contains("ready one"));
         sendFile(s, m2.hash);
         assertTrue(r.events.contains("ready two"));
+    }
+
+    @Test
+    void speaksVersionOneToAnOldServer() {
+        Recorder r = new Recorder();
+        ClientSession s = new ClientSession(new MemoryFileCache(), r, r);
+        s.start();
+        assertEquals(Protocol.VERSION, ((Message.ClientHello) r.sent.get(0)).version);
+        // a version-1 server answers a version-2 hello with its hello alone
+        s.handle(new Message.ServerHello(1, 5, 0, SELF));
+        assertTrue(r.events.isEmpty(), "not connected yet: " + r.events);
+        assertEquals(1, ((Message.ClientHello) r.sent.get(1)).version, "hello again in version 1");
+        s.handle(new Message.ServerHello(1, 5, 0, SELF));
+        s.handle(new Message.CatalogEnd(5));
+        assertEquals(Arrays.asList("connected", "reset 0"), r.events);
+        assertEquals(1, s.version());
+        assertFalse(s.hasRoaming());
+        // version-2 messages from a version-1 server are not passed on
+        s.handle(new Message.Roaming(new UUID(1, 1), true, new HashMap<String, Float>()));
+        s.handle(new Message.Sync(new UUID(1, 1), new float[] { 1 }));
+        assertEquals(2, r.events.size());
+    }
+
+    @Test
+    void passesRoamingAndSyncOnVersionTwo() {
+        Recorder r = new Recorder();
+        ClientSession s = new ClientSession(new MemoryFileCache(), r, r);
+        s.setLocalPlayer(new UUID(9, 9));
+        s.start();
+        catalog(s, 1);
+        assertTrue(s.hasRoaming());
+        Map<String, Float> v = new HashMap<>();
+        v.put("back", 1f);
+        s.handle(new Message.Roaming(new UUID(1, 1), true, v));
+        s.handle(new Message.Sync(SELF, new float[] { 2 }));
+        assertTrue(r.events.contains("roaming true {back=1.0}"));
+        assertTrue(r.events.contains("sync [2.0]"));
+        assertEquals(
+            new UUID(9, 9),
+            r.players.get(r.players.size() - 1),
+            "the sender's own sync maps to the local player");
+        // a version this side does not speak: incompatible, as before
+        Recorder r2 = new Recorder();
+        ClientSession s2 = new ClientSession(new MemoryFileCache(), r2, r2);
+        s2.start();
+        s2.handle(new Message.ServerHello(0, 1, 0, SELF));
+        assertEquals(Arrays.asList("incompatible 0"), r2.events);
     }
 }

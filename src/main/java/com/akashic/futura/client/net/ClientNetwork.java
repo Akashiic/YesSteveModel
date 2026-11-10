@@ -2,11 +2,13 @@ package com.akashic.futura.client.net;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,7 +33,11 @@ import com.akashic.futura.net.FileRef;
 import com.akashic.futura.net.Message;
 import com.akashic.futura.net.MessageCodec;
 import com.akashic.futura.net.ModelLimits;
+import com.akashic.futura.net.MolangSync;
+import com.akashic.futura.net.Protocol;
 import com.akashic.futura.net.ProtocolException;
+import com.akashic.futura.net.RemoteRoaming;
+import com.akashic.futura.net.RoamingTracker;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -60,15 +66,31 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
     private int ready;
     private boolean contractWarned;
 
+    // Roaming variables and ysm.sync (protocol 2)
+    private final RoamingTracker roamingOut = new RoamingTracker();
+    private final RemoteRoaming remoteRoaming = new RemoteRoaming();
+    /** The roaming version written into each animator of another player. */
+    private final Map<PlayerAnimator, Integer> written = new WeakHashMap<>();
+    /** Each player's model key as the server last said, to forget his roaming variables when it changes. */
+    private final Map<UUID, String> keys = new HashMap<>();
+    private PlayerAnimator localAnimatorSeen;
+    /** The server was told the local player plays an emote and not yet that it stopped. */
+    private boolean emoteAnnounced;
+    private long ticks;
+    /** Token bucket for the local model's ysm.sync: 10 a second, bursts of 20 (the server's limit). */
+    private double syncTokens = 20;
+
     private final EmoteListener emotes = new EmoteListener() {
 
         @Override
         public void played(String name) {
+            emoteAnnounced = true;
             send(new Message.EmoteRequest(name));
         }
 
         @Override
         public void stopped() {
+            emoteAnnounced = false;
             send(new Message.EmoteRequest(null));
         }
     };
@@ -85,6 +107,7 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         FMLCommonHandler.instance()
             .bus()
             .register(INSTANCE);
+        MolangSync.setEmitter(INSTANCE::emitSync);
     }
 
     /** For logs and the harness: connection, catalog and download progress. */
@@ -131,6 +154,120 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         while ((r = mainThread.poll()) != null) {
             r.run();
         }
+        ticks++;
+        syncTokens = Math.min(20, syncTokens + 0.5);
+        if (session != null && session.connected()) {
+            try {
+                pollLocal();
+                applyRemoteRoaming();
+            } catch (RuntimeException e) {
+                Futura3D.LOG.error("Roaming variables failed", e);
+            }
+        }
+    }
+
+    // ---- Roaming variables, the emote state and ysm.sync (protocol 2) ----
+
+    /** The local player: an emote that ended by itself, and roaming variables that changed. */
+    private void pollLocal() {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null || !PlayerModels.INSTANCE.active()) {
+            return;
+        }
+        PlayerAnimator a = PlayerModels.INSTANCE.animator(mc.thePlayer);
+        if (emoteAnnounced && (a == null || !a.isPlayingExtra())) {
+            // A play-once emote ended: the server stops sending it to players who come close.
+            emoteAnnounced = false;
+            send(new Message.EmoteRequest(null));
+        }
+        if (!session.hasRoaming()) {
+            return;
+        }
+        if (a != localAnimatorSeen) {
+            localAnimatorSeen = a; // a new model: its variables start over
+            roamingOut.reset();
+        }
+        Map<String, Float> current = new HashMap<>();
+        if (a != null) {
+            a.variables()
+                .roamingNumbers(current);
+        }
+        for (Message m : roamingOut.poll(current, ticks)) {
+            send(m);
+        }
+    }
+
+    /** Writes the other players' relayed roaming variables into their animators (again after a new animator). */
+    private void applyRemoteRoaming() {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.theWorld == null || remoteRoaming.players() == 0 || !PlayerModels.INSTANCE.active()) {
+            return;
+        }
+        for (Object o : mc.theWorld.playerEntities) {
+            if (!(o instanceof AbstractClientPlayer) || o == mc.thePlayer) {
+                continue;
+            }
+            AbstractClientPlayer p = (AbstractClientPlayer) o;
+            int version = remoteRoaming.version(p.getUniqueID());
+            if (version == 0) {
+                continue;
+            }
+            PlayerAnimator a = PlayerModels.INSTANCE.animator(p);
+            if (a == null) {
+                continue;
+            }
+            Integer done = written.get(a);
+            if (done != null && done == version) {
+                continue;
+            }
+            writeRoaming(a, remoteRoaming.of(p.getUniqueID()));
+            written.put(a, version);
+        }
+    }
+
+    /** Makes an animator's roaming variables exactly {@code values}. */
+    static void writeRoaming(PlayerAnimator a, Map<String, Float> values) {
+        Map<String, Float> now = new HashMap<>();
+        a.variables()
+            .roamingNumbers(now);
+        for (String name : now.keySet()) {
+            if (!values.containsKey(name)) {
+                a.variables()
+                    .remove("roaming." + name);
+            }
+        }
+        for (Map.Entry<String, Float> e : values.entrySet()) {
+            a.variables()
+                .set("roaming." + e.getKey(), com.akashic.futura.molang.MolangValue.of(e.getValue()));
+        }
+    }
+
+    /** {@code ysm.sync} from a model: the local player's goes to the server, or runs locally without one. */
+    private void emitSync(Object source, float[] args) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null || !PlayerModels.INSTANCE.active()
+            || source != PlayerModels.INSTANCE.animator(mc.thePlayer)) {
+            return; // other players' models run theirs when the server relays the event
+        }
+        if (syncTokens < 1) {
+            return; // a model calling it every frame: dropped, as the server would
+        }
+        syncTokens--;
+        if (session != null && session.hasRoaming()) {
+            send(new Message.SyncRequest(args));
+        } else {
+            MolangSync.receive(source, args);
+        }
+    }
+
+    /** For the harness: the roaming variables the server relayed for a player. */
+    public Map<String, Float> remoteRoamingOf(UUID player) {
+        return remoteRoaming.of(player);
+    }
+
+    /** For the harness: what the server was last told about the local player's roaming variables. */
+    public Map<String, Float> sentRoaming() {
+        return roamingOut.sent();
     }
 
     private void end() {
@@ -147,6 +284,14 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         ready = 0;
         generation++;
         mainThread.clear();
+        roamingOut.reset();
+        remoteRoaming.clear();
+        written.clear();
+        keys.clear();
+        localAnimatorSeen = null;
+        emoteAnnounced = false;
+        PlayerModels.INSTANCE.externalStates()
+            .clear(); // UUIDs of another world
     }
 
     @SubscribeEvent
@@ -201,7 +346,7 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
         Futura3D.LOG.warn(
             "The server runs another version of the model protocol ({}, this client {}): local models only",
             serverVersion,
-            com.akashic.futura.net.Protocol.VERSION);
+            Protocol.VERSION);
     }
 
     @Override
@@ -272,7 +417,45 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
 
     @Override
     public void state(UUID player, String key, String texture) {
+        String now = key == null ? "" : key;
+        String before = keys.put(player, now);
+        if (before != null && !before.equals(now)) {
+            remoteRoaming.forget(player); // his variables belonged to the old model
+        }
         contract("state", () -> ModelSelection.INSTANCE.select(player, key, texture));
+    }
+
+    @Override
+    public void roaming(UUID player, boolean reset, Map<String, Float> values) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer != null && mc.thePlayer.getUniqueID()
+            .equals(player)) {
+            return; // the local player's own are the source, not a copy
+        }
+        remoteRoaming.apply(player, reset, values);
+    }
+
+    @Override
+    public void sync(UUID player, float[] args) {
+        AbstractClientPlayer p = player(player);
+        PlayerAnimator a = p == null || !PlayerModels.INSTANCE.active() ? null : PlayerModels.INSTANCE.animator(p);
+        if (a != null) {
+            MolangSync.receive(a, args);
+        }
+    }
+
+    private static AbstractClientPlayer player(UUID id) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.theWorld == null) {
+            return null;
+        }
+        for (Object o : mc.theWorld.playerEntities) {
+            if (o instanceof AbstractClientPlayer && ((AbstractClientPlayer) o).getUniqueID()
+                .equals(id)) {
+                return (AbstractClientPlayer) o;
+            }
+        }
+        return null;
     }
 
     @Override
@@ -285,10 +468,16 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
             if (o instanceof AbstractClientPlayer && ((AbstractClientPlayer) o).getUniqueID()
                 .equals(player)) {
                 PlayerAnimator animator = PlayerModels.INSTANCE.animator((AbstractClientPlayer) o);
+                if (animator == null) {
+                    return;
+                }
                 if (name == null) {
                     animator.stopExtra();
-                } else {
-                    animator.playExtra(name);
+                    if (o == mc.thePlayer) {
+                        emoteAnnounced = false;
+                    }
+                } else if (animator.playExtra(name) && o == mc.thePlayer) {
+                    emoteAnnounced = true; // the server plays it on us (/futura3d play): tell it when it ends
                 }
                 return;
             }

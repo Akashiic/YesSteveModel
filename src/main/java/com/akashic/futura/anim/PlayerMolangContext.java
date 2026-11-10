@@ -288,8 +288,11 @@ public final class PlayerMolangContext extends AnimationContext {
             case "stop_all_sounds":
             case "particle":
             case "abs_particle":
-            case "sync":
             case "defer":
+                return MolangValue.ZERO;
+            case "sync":
+                // phase 5b: to the network (net/MolangSync), which runs the model's sync handlers where it lands
+                com.akashic.futura.net.MolangSync.emit(a, args);
                 return MolangValue.ZERO;
             case "keyboard":
                 return MolangValue.ZERO;
@@ -321,6 +324,11 @@ public final class PlayerMolangContext extends AnimationContext {
                 return MolangValue.of(name.equals(a.selectedControl()));
             case "playing_extra_animation":
                 return MolangValue.of(a.playingExtra && a.capState() != PlaybackState.IDLE);
+            case "slashblade_animation": {
+                // upstream SlashBladeBuiltinComponent: the combo animation, or "" (phase 5b, external states)
+                String combo = SlashBladeStates.holds(a.inputs) ? SlashBladeStates.combo(a.inputs) : null;
+                return MolangValue.of(combo == null ? "" : combo);
+            }
             case "state_bypass":
                 return num(5);
             case "state_continue":

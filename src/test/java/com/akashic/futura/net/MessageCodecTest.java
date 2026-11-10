@@ -14,7 +14,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -117,6 +119,140 @@ class MessageCodecTest {
         assertNull(((Message.Select) roundTrip(new Message.Select(null, null))).key);
         assertEquals("wave", ((Message.EmoteRequest) roundTrip(new Message.EmoteRequest("wave"))).name);
         assertNull(((Message.EmoteRequest) roundTrip(new Message.EmoteRequest(null))).name);
+    }
+
+    static Map<String, Float> vars(int n) {
+        Map<String, Float> m = new LinkedHashMap<>();
+        for (int i = 0; i < n; i++) {
+            m.put("v" + i, i * 0.5f);
+        }
+        return m;
+    }
+
+    @Test
+    void roamingAndSyncRoundTrip() throws ProtocolException {
+        Map<String, Float> values = new LinkedHashMap<>();
+        values.put("back", 1f);
+        values.put("a.b_2", -3.25f);
+        Message.Roaming r = (Message.Roaming) roundTrip(new Message.Roaming(new UUID(3, 4), true, values));
+        assertEquals(new UUID(3, 4), r.player);
+        assertTrue(r.reset);
+        assertEquals(values, r.values);
+        assertEquals(Arrays.asList("back", "a.b_2"), new ArrayList<>(r.values.keySet()), "order kept");
+        Message.RoamingUpdate u = (Message.RoamingUpdate) roundTrip(new Message.RoamingUpdate(false, vars(16)));
+        assertFalse(u.reset);
+        assertEquals(vars(16), u.values);
+        Message.Sync sync = (Message.Sync) roundTrip(new Message.Sync(new UUID(5, 6), new float[] { 1, -2.5f, 0 }));
+        assertArrayEquals(new float[] { 1, -2.5f, 0 }, sync.args);
+        assertEquals(0, ((Message.SyncRequest) roundTrip(new Message.SyncRequest(new float[0]))).args.length);
+        float[] sixteen = new float[Protocol.MAX_SYNC_ARGS];
+        Arrays.fill(sixteen, 7);
+        assertArrayEquals(sixteen, ((Message.SyncRequest) roundTrip(new Message.SyncRequest(sixteen))).args);
+        // the sides
+        assertThrows(
+            ProtocolException.class,
+            () -> MessageCodec.decodeFromClient(MessageCodec.encode(new Message.Sync(new UUID(1, 1), new float[0]))));
+        assertThrows(
+            ProtocolException.class,
+            () -> MessageCodec.decodeFromServer(MessageCodec.encode(new Message.RoamingUpdate(true, vars(1)))));
+    }
+
+    @Test
+    void roamingAndSyncLimits() throws IOException {
+        // encoding refuses what decoding would
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> MessageCodec.encode(new Message.RoamingUpdate(false, vars(17))));
+        Map<String, Float> bad = new LinkedHashMap<>();
+        bad.put("Back", 1f);
+        assertThrows(IllegalArgumentException.class, () -> MessageCodec.encode(new Message.RoamingUpdate(false, bad)));
+        Map<String, Float> nan = new LinkedHashMap<>();
+        nan.put("x", Float.NaN);
+        assertThrows(IllegalArgumentException.class, () -> MessageCodec.encode(new Message.RoamingUpdate(false, nan)));
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> MessageCodec.encode(new Message.SyncRequest(new float[Protocol.MAX_SYNC_ARGS + 1])));
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> MessageCodec.encode(new Message.SyncRequest(new float[] { Float.POSITIVE_INFINITY })));
+
+        // decoding, from hand-made payloads
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(roaming(17, "x", 1f)));
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(roaming(1, "Bad", 1f)));
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(roaming(1, "a..b", 1f)));
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(roaming(1, ".a", 1f)));
+        assertThrows(
+            ProtocolException.class,
+            () -> MessageCodec.decodeFromClient(roaming(1, "abcdefghijklmnopqrstuvwxyz0123456", 1f)),
+            "33 bytes");
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(roaming(1, "x", Float.NaN)));
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(roaming(2, "x", 1f)), "repeated");
+        assertEquals(1, ((Message.RoamingUpdate) assertDoesNotThrowDecode(roaming(1, "x", 1f))).values.size());
+        // a bad reset flag
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeByte(Protocol.C_ROAMING);
+        out.writeByte(2);
+        out.writeByte(0);
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(bytes.toByteArray()));
+        // sync: too many, non-finite, trailing
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(sync(17, 1f)));
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(sync(1, Float.NEGATIVE_INFINITY)));
+        byte[] ok = sync(2, 1f);
+        byte[] trailing = Arrays.copyOf(ok, ok.length + 1);
+        assertThrows(ProtocolException.class, () -> MessageCodec.decodeFromClient(trailing));
+    }
+
+    private static Message assertDoesNotThrowDecode(byte[] payload) {
+        try {
+            return MessageCodec.decodeFromClient(payload);
+        } catch (ProtocolException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /** A C_ROAMING payload with {@code n} entries all named {@code name}, valued {@code value}. */
+    private static byte[] roaming(int n, String name, float value) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeByte(Protocol.C_ROAMING);
+        out.writeBoolean(false);
+        out.writeByte(n);
+        for (int i = 0; i < n; i++) {
+            byte[] b = name.getBytes(StandardCharsets.UTF_8);
+            out.writeShort(b.length);
+            out.write(b);
+            out.writeFloat(value);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static byte[] sync(int n, float value) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeByte(Protocol.C_SYNC);
+        out.writeByte(n);
+        for (int i = 0; i < n; i++) {
+            out.writeFloat(value);
+        }
+        return bytes.toByteArray();
+    }
+
+    @Test
+    void roamingNames() {
+        assertTrue(Protocol.validRoamingName("back"));
+        assertTrue(Protocol.validRoamingName("a.b_2"));
+        assertTrue(Protocol.validRoamingName("x"));
+        assertFalse(Protocol.validRoamingName(""));
+        assertFalse(Protocol.validRoamingName("a."));
+        assertFalse(Protocol.validRoamingName("a b"));
+        assertFalse(Protocol.validRoamingName("é"));
+        assertFalse(Protocol.validRoamingName(null));
+        assertTrue(Protocol.speaks(1));
+        assertTrue(Protocol.speaks(Protocol.VERSION));
+        assertFalse(Protocol.speaks(Protocol.VERSION + 1));
+        assertFalse(Protocol.hasRoaming(1));
+        assertTrue(Protocol.hasRoaming(2));
     }
 
     @Test
