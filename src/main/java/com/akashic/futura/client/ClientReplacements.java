@@ -40,13 +40,13 @@ public final class ClientReplacements {
         public final EntityAnimations animations;
         private final ResourceLocation packLocation;
         private final ModelTexture uploaded;
-        private final byte[][] partitions;
+        private final FacePartition.Baked partitions;
         private GeometryRenderer renderer;
         /** Unusable (texture unreadable) or failed while drawn: the host draws. */
         boolean failed;
 
         Target(ReplacementTarget target, EntityAnimations animations, ResourceLocation packLocation,
-            ModelTexture uploaded, byte[][] partitions, boolean failed) {
+            ModelTexture uploaded, FacePartition.Baked partitions, boolean failed) {
             this.target = target;
             this.animations = animations;
             this.packLocation = packLocation;
@@ -127,8 +127,9 @@ public final class ClientReplacements {
                 Futura3D.LOG.warn("Model {}: texture {} of {} is missing or unreadable", key, t.texture, t);
                 return new Target(t, animations, null, null, null, true);
             }
-            byte[][] partitions = FacePartition
-                .classify(t.geometry, FacePartition.Alpha.of(image), loaded.manifest.properties.forceCulling);
+            // partitions and snapped UVs, as for the player geometry (FacePartition.bake)
+            FacePartition.Baked partitions = FacePartition
+                .bake(t.geometry, FacePartition.Alpha.of(image), loaded.manifest.properties.forceCulling);
             ResourceLocation pack = packTextures == null ? null : packTextures.location(t.texture);
             ModelTexture uploaded = pack == null ? new ModelTexture(image) : null;
             return new Target(t, animations, pack, uploaded, partitions, false);
