@@ -7,14 +7,21 @@
  * src/main/java/com/elfmcys/ysm/expression/host/builtin/PositionComponent.java and
  * src/main/java/com/elfmcys/ysm/client/entity/CustomFirstPersonArmEntity.java (the first-person arms: own controllers,
  * roaming variables projected from the body), Apache License 2.0.
- * Changes: one object per player and model, driven by PlayerInputs; no async ticker, rate limiter, GUI previews,
- * first-person head hiding or network sync.
+ * src/main/java/com/elfmcys/ysm/expression/aot/EntityExpressionRuntime.java (event dispatch: player_init,
+ * player_update,
+ * sync, deferred captures), Apache License 2.0.
+ * Changes: one object per player and model, driven by PlayerInputs; no async ticker, rate limiter, GUI previews or
+ * first-person head hiding; sync goes through a SyncSink seam; deferred captures run at the end of the frame's
+ * events and of the frame, newest first, without restoring the animation context they were made in.
  */
 package com.akashic.futura.anim;
 
+import java.util.ArrayDeque;
 import java.util.List;
 
 import com.akashic.futura.anim.physics.PhysicsManager;
+import com.akashic.futura.molang.MolangExpression;
+import com.akashic.futura.molang.MolangValue;
 import com.akashic.futura.molang.MolangVariables;
 
 /**
@@ -35,6 +42,8 @@ public final class PlayerAnimator {
 
     static final int TICK_SWING = 1;
     static final int TICK_USE = 2;
+    /** Upstream {@code MAX_DEFERRED_CAPTURES}: {@code ysm.defer} calls one frame may queue. */
+    static final int MAX_DEFERRED = 64;
 
     final ModelAnimations model;
     private final AnimationProcessor processor;
@@ -46,6 +55,12 @@ public final class PlayerAnimator {
     private final BoneAttributes attributes;
 
     PlayerInputs inputs;
+
+    // events (upstream EntityExpressionRuntime)
+    private boolean initFired;
+    private final ArrayDeque<float[]> deferred = new ArrayDeque<>();
+    private int deferredThisFrame;
+    private SyncSink syncSink;
 
     // frame timing (upstream seekTime / lastFrameTime)
     float seekTime;
@@ -137,14 +152,146 @@ public final class PlayerAnimator {
         }
         computeFrame();
         if (tick) {
+            deferredThisFrame = 0;
             advanceComponentTime();
             physics.update(seekTime);
+            drainDeferred();
+            dispatchPersistentEvents();
             processor.tick(controllers, seekTime, context, true);
             if (playingExtra && cap != null && cap.state() == PlaybackState.IDLE) {
                 playingExtra = false;
             }
+            drainDeferred();
+            trimSounds();
         }
         writePose();
+    }
+
+    /** Upstream {@code dispatchPersistentEvents}: {@code player_init} once, then {@code player_update(true)}. */
+    private void dispatchPersistentEvents() {
+        if (!initFired) {
+            initFired = true;
+            dispatch(ModelFunctions.PLAYER_INIT, new MolangValue[0]);
+        }
+        dispatch(ModelFunctions.PLAYER_UPDATE, new MolangValue[] { MolangValue.ONE });
+    }
+
+    private void dispatch(String event, MolangValue[] args) {
+        List<MolangExpression> handlers = model.functions.handlers(event);
+        for (int i = 0; i < handlers.size(); i++) {
+            context.invoke(handlers.get(i), args);
+        }
+    }
+
+    private static MolangValue[] values(float[] values) {
+        MolangValue[] args = new MolangValue[values.length];
+        for (int i = 0; i < values.length; i++) {
+            args[i] = MolangValue.of((double) values[i]);
+        }
+        return args;
+    }
+
+    /** {@code ysm.sync(values)}: to the network through the {@link SyncSink}, or to the {@code @sync} handlers now. */
+    void sync(float[] values) {
+        for (float v : values) {
+            if (Float.isNaN(v) || Float.isInfinite(v)) {
+                return;
+            }
+        }
+        SyncSink sink = syncSink;
+        boolean taken = false;
+        if (sink != null) {
+            try {
+                taken = sink.emit(values.clone());
+            } catch (RuntimeException e) {
+                taken = false;
+            }
+        }
+        if (!taken) {
+            dispatchSync(values);
+        }
+    }
+
+    /**
+     * Runs the model's {@code @sync} handlers with {@code args[0..]} = the values (the network layer calls this with
+     * what a player's {@code ysm.sync} sent; at most 16 values, finite).
+     */
+    public void dispatchSync(float[] values) {
+        if (values == null || values.length > ModelFunctions.SYNC_MAX_ARGUMENTS || inputs == null) {
+            return;
+        }
+        for (float v : values) {
+            if (Float.isNaN(v) || Float.isInfinite(v)) {
+                return;
+            }
+        }
+        dispatch(ModelFunctions.SYNC, values(values));
+    }
+
+    /** Where this player's {@code ysm.sync} goes; null dispatches locally. */
+    public void setSyncSink(SyncSink sink) {
+        this.syncSink = sink;
+    }
+
+    /** Where this player's sounds play ({@link SoundBackend#NONE} by default). */
+    public void setSoundBackend(SoundBackend backend) {
+        context.setSoundBackend(backend);
+    }
+
+    /** {@code ysm.defer(delay, values...)}: queued, run newest first with {@code args} = delay then values. */
+    void defer(float[] values) {
+        for (float v : values) {
+            if (Float.isNaN(v) || Float.isInfinite(v)) {
+                return;
+            }
+        }
+        if (deferredThisFrame >= MAX_DEFERRED) {
+            return;
+        }
+        deferredThisFrame++;
+        deferred.addLast(values);
+    }
+
+    private void drainDeferred() {
+        List<MolangExpression> handlers = model.functions.handlers(ModelFunctions.DEFER);
+        while (!deferred.isEmpty()) {
+            float[] values = deferred.pollLast();
+            if (!handlers.isEmpty()) {
+                dispatch(ModelFunctions.DEFER, values(values));
+            }
+        }
+    }
+
+    /** Stops every sound this animator started (the player left, or the model changed). */
+    public void stopSounds() {
+        context.globalSounds.stopAll();
+        for (AnimationController c : controllers) {
+            stopSounds(c);
+        }
+    }
+
+    private static void stopSounds(AnimationController c) {
+        SoundScope scope = c.soundScope();
+        if (scope != null) {
+            scope.stopAll();
+        }
+        if (c instanceof HybridController) {
+            HybridController h = (HybridController) c;
+            h.coded()
+                .player()
+                .stopSounds();
+            if (h.bedrock() != null) {
+                h.bedrock()
+                    .stopAllSounds();
+            }
+        } else if (c instanceof CodedController) {
+            ((CodedController) c).player()
+                .stopSounds();
+        }
+    }
+
+    private void trimSounds() {
+        context.globalSounds.trim();
     }
 
     /** The pose of the main geometry for the last {@link #update}. Reused: do not keep it across frames. */
@@ -205,8 +352,20 @@ public final class PlayerAnimator {
         return processor;
     }
 
-    List<AnimationController> controllers() {
+    /** The controller stack, in processing order. */
+    public List<AnimationController> controllers() {
         return controllers;
+    }
+
+    /** The controller of that name, or null. */
+    public AnimationController controller(String name) {
+        for (AnimationController c : controllers) {
+            if (c.name()
+                .equals(name)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     PlaybackState capState() {

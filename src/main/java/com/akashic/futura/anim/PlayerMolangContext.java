@@ -4,24 +4,33 @@
  * ControlReadBuiltins.java, ControlBuiltins.java, PlayerBuiltins.java and PositionComponent.java, Apache License 2.0;
  * plus the query names the legacy 1.1.5 registered (AnimationRegister.setParserValue, BSD-3-Clause) that 2.x no longer
  * lists, so older models keep working.
- * Changes: one switch over names reading PlayerInputs; sounds, particles, sync, defer, keyboard and mod_version answer
- * as no-ops; effects (bone colour, glow, transparency) apply directly instead of through an effect batch.
+ * Changes: one switch over names reading PlayerInputs; particles, keyboard and mod_version answer as no-ops; effects
+ * (bone colour, glow, transparency, sounds) apply directly instead of through an effect batch; user functions
+ * ({@code fn.*}, {@code args[i]}) are called on the same context with an argument stack.
  */
 package com.akashic.futura.anim;
 
 import java.util.Random;
 
+import com.akashic.futura.molang.MolangExpression;
 import com.akashic.futura.molang.MolangValue;
 import com.akashic.futura.molang.MolangVariables;
 
 /**
- * Answers the {@code query.*}, {@code ysm.*}, {@code ctrl.*} (and {@code math.random*}) names for one player. Unknown
- * names return null (the expression sees 0).
+ * Answers the {@code query.*}, {@code ysm.*}, {@code ctrl.*}, {@code fn.*} (and {@code math.random*}) names for one
+ * player. Unknown names return null (the expression sees 0).
  */
 public final class PlayerMolangContext extends AnimationContext {
 
+    /** Nested user-function calls allowed (upstream rejects recursion when compiling; here it is cut off). */
+    static final int MAX_FUNCTION_DEPTH = 16;
+    private static final MolangValue[] NO_ARGS = new MolangValue[0];
+
     private final PlayerAnimator a;
     private final Random random = new Random();
+    /** The arguments of the user functions and handlers running, innermost last. */
+    private final MolangValue[][] argStack = new MolangValue[MAX_FUNCTION_DEPTH + 1][];
+    private int depth;
 
     PlayerMolangContext(PlayerAnimator animator, MolangVariables variables) {
         super(variables);
@@ -45,8 +54,48 @@ public final class PlayerMolangContext extends AnimationContext {
                 return ctrl(name, args);
             case "math":
                 return math(name, args);
+            case "fn":
+                return userFunction(name, args);
             default:
                 return null;
+        }
+    }
+
+    /** {@code args[i]}: an argument of the innermost user function or event handler. */
+    @Override
+    public MolangValue index(String namespace, String name, int index) {
+        if (!"global".equals(namespace) || !"args".equals(name) || depth == 0) {
+            return null;
+        }
+        MolangValue[] args = argStack[depth - 1];
+        return index >= 0 && index < args.length ? args[index] : null;
+    }
+
+    /** {@code fn.<name>(args...)}: the model's function, its result (missing when unknown or nested too deep). */
+    private MolangValue userFunction(String name, MolangValue[] args) {
+        MolangExpression body = a.model.functions.function(name);
+        if (body == null) {
+            return null;
+        }
+        return invoke(body, args.clone());
+    }
+
+    /**
+     * Runs a user function or event handler with its arguments ({@code args[i]}); its {@code t.*} are its own.
+     *
+     * @return its value, or null when calls are nested too deep
+     */
+    MolangValue invoke(MolangExpression body, MolangValue[] args) {
+        if (depth >= MAX_FUNCTION_DEPTH) {
+            return null;
+        }
+        argStack[depth++] = args == null ? NO_ARGS : args;
+        try {
+            return body.evaluate(this);
+        } catch (RuntimeException e) {
+            return null;
+        } finally {
+            argStack[--depth] = null;
         }
     }
 
@@ -58,10 +107,9 @@ public final class PlayerMolangContext extends AnimationContext {
             case "life_time":
                 return num(a.lifeTime());
             case "all_animations_finished":
-            case "any_animation_finished": {
-                AnimationController c = controller;
-                return MolangValue.of(c instanceof CodedController && ((CodedController) c).isAnimFinished());
-            }
+                return MolangValue.of(controller != null && controller.allAnimationsFinished());
+            case "any_animation_finished":
+                return MolangValue.of(controller != null && controller.anyAnimationFinished());
             case "body_y_rotation":
                 return num(AnimMath.wrapDegrees(a.lerpBodyRot));
             case "body_x_rotation":
@@ -282,14 +330,30 @@ public final class PlayerMolangContext extends AnimationContext {
                 float p3 = args.length > 4 ? f(args, 4) : 1;
                 return num(a.physics.call(str(args, 0), x, name.equals("first_order"), p1, p2, p3));
             }
-            // effects without a backend yet: known names, no effect
             case "play_sound":
+                playSound(args);
+                return MolangValue.ZERO;
             case "stop_sound":
+                if (args.length >= 1) {
+                    soundScope(args.length > 1 && args[1].asBoolean()).stop(SoundScope.id(args[0]));
+                }
+                return MolangValue.ZERO;
             case "stop_all_sounds":
+                soundScope(args.length > 0 && args[0].asBoolean()).stopAll();
+                return MolangValue.ZERO;
+            case "sync":
+                if (args.length <= ModelFunctions.SYNC_MAX_ARGUMENTS) {
+                    a.sync(floats(args, 0));
+                }
+                return MolangValue.ZERO;
+            case "defer":
+                if (args.length >= 1 && args.length <= ModelFunctions.DEFER_MAX_ARGUMENTS) {
+                    a.defer(floats(args, 0));
+                }
+                return MolangValue.ZERO;
+            // effects without a backend yet: known names, no effect
             case "particle":
             case "abs_particle":
-            case "sync":
-            case "defer":
                 return MolangValue.ZERO;
             case "keyboard":
                 return MolangValue.ZERO;
@@ -359,6 +423,34 @@ public final class PlayerMolangContext extends AnimationContext {
             default:
                 return null;
         }
+    }
+
+    /**
+     * Upstream {@code ModelBuiltins.playSound}: {@code ysm.play_sound(id, name, mode = 0, volume = 1, pitch = 1)}.
+     * Mode bits: 1 replaces a sound still playing under the id, 2 uses the player's global scope, 4 loops.
+     */
+    private void playSound(MolangValue[] args) {
+        if (args.length < 2) {
+            return;
+        }
+        Object id = SoundScope.id(args[0]);
+        String sound = str(args, 1);
+        int mode = args.length > 2 ? (int) f(args, 2) : 0;
+        if (!SoundScope.playable(id) || sound.trim()
+            .isEmpty() || mode < 0 || mode > 7) {
+            return;
+        }
+        float volume = AnimMath.clamp(args.length > 3 ? f(args, 3) : 1, 0.001f, 1000f);
+        float pitch = AnimMath.clamp(args.length > 4 ? f(args, 4) : 1, 0.001f, 1000f);
+        soundScope((mode & 2) != 0).play(soundBackend(), id, sound, (mode & 1) != 0, volume, pitch, (mode & 4) != 0);
+    }
+
+    private static float[] floats(MolangValue[] args, int from) {
+        float[] values = new float[Math.max(0, args.length - from)];
+        for (int i = 0; i < values.length; i++) {
+            values[i] = (float) args[from + i].asNumber();
+        }
+        return values;
     }
 
     /** {@code math.random} / {@code math.random_integer}, should the interpreter ask. */

@@ -37,9 +37,11 @@ public final class PlayerModels {
         final ClientModel model;
         final PlayerAnimator animator;
 
-        Animated(ClientModel model) {
+        Animated(AbstractClientPlayer player, ClientModel model) {
             this.model = model;
             this.animator = new PlayerAnimator(model.animations);
+            animator.setSoundBackend(ModelSounds.INSTANCE.backend(player, model));
+            animator.setSyncSink(ModelSync.sinkFor(player));
         }
     }
 
@@ -196,7 +198,10 @@ public final class PlayerModels {
         Animated animated = animators.get(player);
         if (animated == null || animated.model != model) {
             // A new model (or a reload of it): its own animator; the old one is dropped.
-            animated = new Animated(model);
+            if (animated != null) {
+                animated.animator.stopSounds();
+            }
+            animated = new Animated(player, model);
             animators.put(player, animated);
         }
         return animated;
@@ -235,7 +240,9 @@ public final class PlayerModels {
     void forgetReleased() {
         for (Iterator<Animated> it = animators.values()
             .iterator(); it.hasNext();) {
-            if (it.next().model.released()) {
+            Animated animated = it.next();
+            if (animated.model.released()) {
+                animated.animator.stopSounds();
                 it.remove();
             }
         }

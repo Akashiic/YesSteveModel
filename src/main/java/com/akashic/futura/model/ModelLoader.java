@@ -9,9 +9,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import com.akashic.futura.format.FormatGson;
 import com.akashic.futura.format.pojo.animation.AnimationFile;
+import com.akashic.futura.format.pojo.controller.AnimationController;
+import com.akashic.futura.format.pojo.controller.AnimationControllerFile;
 import com.akashic.futura.format.pojo.manifest.ModelManifest;
 import com.akashic.futura.format.pojo.manifest.models.PBRTextureSet;
 import com.akashic.futura.format.pojo.model.GeoModel;
@@ -47,6 +50,39 @@ public final class ModelLoader {
             animations.put(set.getKey(), read(animationGson, source, set.getValue(), AnimationFile.class));
         }
 
+        // Controllers of every file, merged by name (a later file replaces an earlier one, as upstream's assembler).
+        Map<String, AnimationController> controllers = new LinkedHashMap<>();
+        for (String file : manifest.files.player.animationControllers) {
+            if (file == null || file.trim()
+                .isEmpty()) {
+                continue;
+            }
+            AnimationControllerFile controllerFile = read(gson, source, file, AnimationControllerFile.class);
+            if (controllerFile.animationControllers != null) {
+                for (Map.Entry<String, AnimationController> e : new TreeMap<>(controllerFile.animationControllers)
+                    .entrySet()) {
+                    if (e.getKey() != null && e.getValue() != null) {
+                        controllers.put(e.getKey(), e.getValue());
+                    }
+                }
+            }
+        }
+
+        List<String> listing = source.list();
+        String functionPath = blank(manifest.files.functionPath) ? "functions" : manifest.files.functionPath;
+        Map<String, String> functions = new LinkedHashMap<>();
+        for (String path : ModelSource.filesUnder(listing, functionPath, ".molang")) {
+            functions.put(relativeName(functionPath, path), readText(source, path));
+        }
+        @SuppressWarnings("deprecation")
+        String playerSoundPath = manifest.files.player.soundPath;
+        String soundPath = !blank(manifest.files.soundPath) ? manifest.files.soundPath
+            : !blank(playerSoundPath) ? playerSoundPath : "sounds";
+        Map<String, String> sounds = new LinkedHashMap<>();
+        for (String path : ModelSource.filesUnder(listing, soundPath, "")) {
+            sounds.putIfAbsent(relativeName(soundPath, path), path);
+        }
+
         List<String> textures = new ArrayList<>();
         for (PBRTextureSet texture : manifest.files.player.texture) {
             if (texture != null && texture.uv != null && !texture.uv.isEmpty()) {
@@ -67,7 +103,57 @@ public final class ModelLoader {
         if (widthScale == 0.7f && desc != null) {
             widthScale = desc.ysmWidthScale;
         }
-        return new LoadedModel(source, manifest, main, arm, animations, textures, heightScale, widthScale);
+        return new LoadedModel(
+            source,
+            manifest,
+            main,
+            arm,
+            animations,
+            textures,
+            heightScale,
+            widthScale,
+            controllers,
+            functions,
+            sounds);
+    }
+
+    private static boolean blank(String s) {
+        return s == null || s.trim()
+            .isEmpty();
+    }
+
+    /** {@code functions/a/b@x.molang} under {@code functions} is {@code a/b@x}. */
+    static String relativeName(String folder, String path) {
+        String root = folder.replace('\\', '/');
+        while (root.startsWith("/")) {
+            root = root.substring(1);
+        }
+        while (root.endsWith("/")) {
+            root = root.substring(0, root.length() - 1);
+        }
+        String rel = root.isEmpty() ? path : path.substring(root.length() + 1);
+        int slash = rel.lastIndexOf('/');
+        int dot = rel.lastIndexOf('.');
+        return dot > slash ? rel.substring(0, dot) : rel;
+    }
+
+    /** A function file, at most 256 KiB, as UTF-8. */
+    private static String readText(ModelSource source, String path) throws IOException {
+        try (InputStream in = source.open(path)) {
+            if (in == null) {
+                throw new IOException(source.name() + ": missing " + path);
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                out.write(buffer, 0, n);
+                if (out.size() > 256 * 1024) {
+                    throw new IOException(source.name() + ": " + path + " is larger than 256 KiB");
+                }
+            }
+            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        }
     }
 
     private static <T> T read(Gson gson, ModelSource source, String path, Class<T> type) throws IOException {

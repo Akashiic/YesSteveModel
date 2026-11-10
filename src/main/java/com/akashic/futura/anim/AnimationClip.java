@@ -2,7 +2,7 @@
  * Adapted from Yes Steve Model (https://github.com/YesSteveModel/YesSteveModel, branch dev/1.20, commit 15c2c25),
  * src/main/java/com/elfmcys/ysm/geckolib3/core/builder/Animation.java and
  * src/main/java/com/elfmcys/ysm/geckolib3/core/keyframe/BoneAnimation.java, Apache License 2.0.
- * Changes: compiled from the format POJOs directly (no protobuf container); sound keyframes are not kept yet.
+ * Changes: compiled from the format POJOs directly (no protobuf container).
  */
 package com.akashic.futura.anim;
 
@@ -40,6 +40,18 @@ public final class AnimationClip {
         }
     }
 
+    /** {@code sound_effects} entry: a sound started when playback passes {@link #tick}. */
+    public static final class SoundKey {
+
+        public final float tick;
+        public final String effect;
+
+        SoundKey(float tick, String effect) {
+            this.tick = tick;
+            this.effect = effect;
+        }
+    }
+
     public final String name;
     /** Length in ticks ({@link Float#MAX_VALUE} when the file gives none and no keyframe after 0). */
     public final float length;
@@ -49,21 +61,22 @@ public final class AnimationClip {
     public final BoneTrack[] tracks;
     /** Sorted by tick. */
     public final Instruction[] instructions;
-    private final boolean hasSounds;
+    /** Sorted by tick. */
+    public final SoundKey[] sounds;
 
     AnimationClip(String name, float length, LoopType loop, Vec3Expr.Scalar blendWeight, BoneTrack[] tracks,
-        Instruction[] instructions, boolean hasSounds) {
+        Instruction[] instructions, SoundKey[] sounds) {
         this.name = name;
         this.length = length;
         this.loop = loop;
         this.blendWeight = blendWeight;
         this.tracks = tracks;
         this.instructions = instructions;
-        this.hasSounds = hasSounds;
+        this.sounds = sounds;
     }
 
     /** As upstream {@code Animation.isEmpty}: no bones, no sounds, no instructions. */
     public boolean isEmpty() {
-        return tracks.length == 0 && instructions.length == 0 && !hasSounds;
+        return tracks.length == 0 && instructions.length == 0 && sounds.length == 0;
     }
 }

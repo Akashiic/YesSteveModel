@@ -5,8 +5,7 @@
  * OffhandPredicate, SwingPredicate, UsePredicate, PassengerPredicate, CapPredicate, ParallelPredicate,
  * ArmorPredicate, IAnimationPredicate.playCompatAnimation), Apache License 2.0.
  * Changes: Minecraft reads go through PlayerInputs; mod compat controllers and predicates (ParCool, Carry On, TaCZ,
- * Superb Warfare, SlashBlade, Iron's Spells, Create, SWEM) and the GUI-only controllers are not ported; the
- * pre_/post_ controllers that only exist when a model declares them in files are Tier 2.
+ * Superb Warfare, SlashBlade, Iron's Spells, Create, SWEM) and the GUI-only controllers are not ported.
  */
 package com.akashic.futura.anim;
 
@@ -20,15 +19,18 @@ import com.akashic.futura.format.pojo.animation.LoopType;
  * Builds the player controller stack in upstream order:
  *
  * <pre>
- * pre_parallel_0..7 (0 s)  vehicle (0.1 s)  main (0.1 s)  hold_offhand (0.1 s)  hold_mainhand (0.1 s)
- * swing (0 s)  use (0.1 s)  passenger (0.1 s)  cap (0 s)  parallel_0..7 (0 s, additive rotation)
- * armor_feet/legs/chest/head (0 s)
+ * pre_parallel_* (0 s)  vehicle (0.1 s)
+ * pre_main*  main (0.1 s)  post_main*
+ * pre_hold*  hold_offhand (0.1 s)  hold_mainhand (0.1 s)  post_hold*
+ * pre_swing*  swing (0 s)  post_swing*
+ * pre_use*  use (0.1 s)  post_use*
+ * passenger (0.1 s)  cap (0 s)  parallel_* (0 s, additive rotation)  armor_mainhand..head (0 s)
  * </pre>
  *
- * Tier 2 seam: upstream wraps each of these (except cap) in a {@code HybridAnimationController}, which switches to the
- * model's Bedrock controller of the same name ({@code player.main}...) when its {@code animation_controllers} files
- * declare one, and adds {@code pre_main}, {@code post_main}, {@code pre_hold}... controllers that exist only when
- * declared. Those plug in here, by name, without changing the processor.
+ * Every controller but {@code cap} is a {@link HybridController}: a Bedrock controller of the same name in the model's
+ * files replaces the coded predicate. The starred ones exist only when the model declares them (a Bedrock controller,
+ * or an override function {@code player_ctrl_<name>}); their coded predicate stops. Every coded predicate can be
+ * overridden by the model's {@code player_ctrl_<name>} function.
  */
 public final class PlayerControllers {
 
@@ -38,38 +40,86 @@ public final class PlayerControllers {
     private PlayerControllers() {}
 
     static List<AnimationController> build(PlayerAnimator a, ModelAnimations m, float[] committed) {
-        List<AnimationController> list = new ArrayList<>();
-        AnimationLibrary lib = m.library;
+        Builder b = new Builder(m, committed);
         for (Map.Entry<String, String> e : m.preParallel.entrySet()) {
             String anim = e.getValue();
-            list.add(new CodedController(e.getKey(), lib, committed, m, 0, false, c -> loop(c, anim)));
+            b.hybrid(e.getKey(), 0, false, anim != null ? c -> loop(c, anim) : Builder.EMPTY);
         }
-        list.add(new CodedController(CATEGORY + ".vehicle", lib, committed, m, 0.1f, false, c -> vehicle(a, c)));
-        list.add(new CodedController(CATEGORY + ".main", lib, committed, m, 0.1f, false, c -> main(a, c)));
-        list.add(
-            new CodedController(CATEGORY + ".hold_offhand", lib, committed, m, 0.1f, false, c -> holdOffhand(a, c)));
-        list.add(
-            new CodedController(CATEGORY + ".hold_mainhand", lib, committed, m, 0.1f, false, c -> holdMainhand(a, c)));
-        list.add(new CodedController(CATEGORY + ".swing", lib, committed, m, 0, false, c -> swing(a, c)));
-        list.add(new CodedController(CATEGORY + ".use", lib, committed, m, 0.1f, false, c -> use(a, c)));
-        list.add(new CodedController(CATEGORY + ".passenger", lib, committed, m, 0.1f, false, c -> passenger(a, c)));
-        list.add(new CodedController(CAP, lib, committed, m, 0, false, c -> cap(a, c)));
+        b.hybrid(CATEGORY + ".vehicle", 0.1f, false, c -> vehicle(a, c));
+        b.multi("pre_main");
+        b.hybrid(CATEGORY + ".main", 0.1f, false, c -> main(a, c));
+        b.multi("post_main");
+        b.multi("pre_hold");
+        b.hybrid(CATEGORY + ".hold_offhand", 0.1f, false, c -> holdOffhand(a, c));
+        b.hybrid(CATEGORY + ".hold_mainhand", 0.1f, false, c -> holdMainhand(a, c));
+        b.multi("post_hold");
+        b.multi("pre_swing");
+        b.hybrid(CATEGORY + ".swing", 0, false, c -> swing(a, c));
+        b.multi("post_swing");
+        b.multi("pre_use");
+        b.hybrid(CATEGORY + ".use", 0.1f, false, c -> use(a, c));
+        b.multi("post_use");
+        b.hybrid(CATEGORY + ".passenger", 0.1f, false, c -> passenger(a, c));
+        b.coded(CAP, 0, false, c -> cap(a, c));
         for (Map.Entry<String, String> e : m.parallel.entrySet()) {
             String anim = e.getValue();
-            list.add(new CodedController(e.getKey(), lib, committed, m, 0, true, c -> loop(c, anim)));
+            b.hybrid(e.getKey(), 0, true, anim != null ? c -> loop(c, anim) : Builder.EMPTY);
         }
         for (ItemConditions.Slot slot : m.armorSlots) {
-            list.add(
-                new CodedController(
-                    CATEGORY + ".armor_" + slot.id,
-                    lib,
-                    committed,
-                    m,
-                    0,
-                    false,
-                    c -> armor(a, c, slot)));
+            b.hybrid(CATEGORY + ".armor_" + slot.id, 0, false, c -> armor(a, c, slot));
         }
-        return list;
+        return b.list;
+    }
+
+    /** Makes the controllers of one stack: coded ones with their override, hybrids with their Bedrock definition. */
+    static final class Builder {
+
+        /** {@code EmptyPredicate}: always stops. */
+        static final CodedController.Predicate EMPTY = c -> PlayState.STOP;
+
+        final List<AnimationController> list = new ArrayList<>();
+        private final ModelAnimations m;
+        private final float[] committed;
+        private final String category;
+
+        Builder(ModelAnimations m, float[] committed) {
+            this.m = m;
+            this.committed = committed;
+            this.category = m.firstPerson ? FirstPersonControllers.CATEGORY : CATEGORY;
+        }
+
+        CodedController newCoded(String name, float transitionSeconds, boolean blendRotation,
+            CodedController.Predicate predicate) {
+            CodedController c = new CodedController(
+                name,
+                m.library,
+                committed,
+                m,
+                transitionSeconds,
+                blendRotation,
+                predicate);
+            c.setOverride(m.functions.first(ModelFunctions.overrideEvent(name)));
+            return c;
+        }
+
+        void coded(String name, float transitionSeconds, boolean blendRotation, CodedController.Predicate predicate) {
+            list.add(newCoded(name, transitionSeconds, blendRotation, predicate));
+        }
+
+        void hybrid(String name, float transitionSeconds, boolean blendRotation, CodedController.Predicate predicate) {
+            CodedController coded = newCoded(name, transitionSeconds, blendRotation, predicate);
+            ControllerData data = m.controllers.get(name);
+            BedrockController bedrock = data == null ? null
+                : new BedrockController(name, m.library, committed, m, transitionSeconds, m.controllers::get, data);
+            list.add(new HybridController(coded, bedrock));
+        }
+
+        /** {@code MultiControllerDiscovery}: declared ones only, with an always-stopping predicate. */
+        void multi(String base) {
+            for (String name : m.discoverMulti(category, base)) {
+                hybrid(name, 0, false, EMPTY);
+            }
+        }
     }
 
     /** {@code ParallelPredicate}: always the same clip, looping. */
@@ -221,7 +271,8 @@ public final class PlayerControllers {
 
     /** {@code ArmorPredicate}. */
     static PlayState armor(PlayerAnimator a, CodedController c, ItemConditions.Slot slot) {
-        ItemInfo item = a.inputs.armor(slot);
+        ItemInfo item = slot == ItemConditions.Slot.MAINHAND ? a.inputs.mainhand()
+            : slot == ItemConditions.Slot.OFFHAND ? a.inputs.offhand() : a.inputs.armor(slot);
         if (item == null || item.isEmpty()) {
             return PlayState.STOP;
         }

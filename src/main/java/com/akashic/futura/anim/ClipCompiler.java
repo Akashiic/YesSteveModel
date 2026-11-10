@@ -16,6 +16,7 @@ import com.akashic.futura.format.pojo.animation.BoneAnimation;
 import com.akashic.futura.format.pojo.animation.keyframe.BoneKeyFrame;
 import com.akashic.futura.format.pojo.animation.keyframe.BoneKeyFrameList;
 import com.akashic.futura.format.pojo.animation.keyframe.EasingType;
+import com.akashic.futura.format.pojo.animation.keyframe.EventKeyFrame;
 import com.akashic.futura.format.pojo.animation.keyframe.InstructionKeyFrame;
 import com.akashic.futura.format.pojo.animation.value.UnionValue;
 import com.akashic.futura.format.pojo.animation.value.Vector3v;
@@ -41,6 +42,11 @@ public final class ClipCompiler {
         this.parser = parser;
     }
 
+    /** The Molang compiler this uses (controllers and functions of the same model use it too). */
+    public Function<String, MolangExpression> parser() {
+        return parser;
+    }
+
     public AnimationClip compile(Animation src) {
         List<AnimationClip.BoneTrack> tracks = new ArrayList<>();
         for (BoneAnimation bone : src.boneAnimations) {
@@ -62,6 +68,12 @@ public final class ClipCompiler {
             instructions.add(new AnimationClip.Instruction(frame.startTick, programs));
         }
         instructions.sort((a, b) -> Float.compare(a.tick, b.tick));
+        List<AnimationClip.SoundKey> sounds = new ArrayList<>();
+        for (EventKeyFrame frame : src.soundKeyFrames) {
+            // upstream skips empty effects when playing; they still count for isEmpty
+            sounds.add(new AnimationClip.SoundKey(frame.startTick, frame.eventData == null ? "" : frame.eventData));
+        }
+        sounds.sort((a, b) -> Float.compare(a.tick, b.tick));
         Vec3Expr.Scalar blendWeight = src.blendWeight == null ? null : scalar(src.blendWeight, 1);
         return new AnimationClip(
             src.animationName == null ? "" : src.animationName,
@@ -70,7 +82,7 @@ public final class ClipCompiler {
             blendWeight,
             tracks.toArray(new AnimationClip.BoneTrack[0]),
             instructions.toArray(new AnimationClip.Instruction[0]),
-            !src.soundKeyFrames.isEmpty());
+            sounds.toArray(new AnimationClip.SoundKey[0]));
     }
 
     private Channel channel(BoneKeyFrameList list, boolean rotation) {

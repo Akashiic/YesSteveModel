@@ -2,9 +2,10 @@
  * Adapted from Yes Steve Model (https://github.com/YesSteveModel/YesSteveModel, branch dev/1.20, commit 15c2c25),
  * src/main/java/com/elfmcys/ysm/geckolib3/core/controller/AnimationPlayer.java,
  * src/main/java/com/elfmcys/ysm/geckolib3/core/controller/transition/LinearBlendTransition.java and
- * src/main/java/com/elfmcys/ysm/geckolib3/core/event/InstructionKeyFrameExecutor.java, Apache License 2.0.
+ * src/main/java/com/elfmcys/ysm/geckolib3/core/event/InstructionKeyFrameExecutor.java and
+ * src/main/java/com/elfmcys/ysm/geckolib3/core/event/SoundKeyframeExecutor.java, Apache License 2.0.
  * Changes: points are per-channel fields of the bone queues instead of objects; animation resolution is a plain
- * library lookup (always stable, so no retry); sound keyframes are not played yet.
+ * library lookup (always stable, so no retry); the event executors are two indices.
  */
 package com.akashic.futura.anim;
 
@@ -30,9 +31,10 @@ public final class AnimationPlayer {
     private final BoneQueue[] queues;
     private final List<BoneQueue> active = new ArrayList<>();
     private final boolean disableBeginningTransitionScale;
+    /** The sounds this timeline started (sound keyframes, and {@code ysm.play_sound} while it runs). */
+    final SoundScope sounds = new SoundScope();
 
-    /** Beginning transition length in ticks. */
-    private float beginningTicks;
+    private BlendCurve beginning;
     private PlaybackState state = PlaybackState.IDLE;
     private float animTickOffset;
     private float endingTransitionSrcTick;
@@ -46,6 +48,7 @@ public final class AnimationPlayer {
     private AnimationClip current;
     private LoopType currentLoop;
     private int nextInstruction;
+    private int nextSound;
     private boolean currentAnimFinished = true;
 
     /**
@@ -61,7 +64,7 @@ public final class AnimationPlayer {
             queues[i] = new BoneQueue(i);
         }
         this.bones = bones;
-        this.beginningTicks = transitionSeconds * 20;
+        this.beginning = BlendCurve.linear(transitionSeconds);
         this.disableBeginningTransitionScale = disableBeginningTransitionScale;
     }
 
@@ -120,7 +123,21 @@ public final class AnimationPlayer {
     }
 
     public void setBeginningTransitionSeconds(float seconds) {
-        beginningTicks = seconds * 20;
+        beginning = BlendCurve.linear(seconds);
+    }
+
+    /** The beginning transition of the next clip (a Bedrock state's {@code blend_transition}). */
+    public void setBeginningTransition(BlendCurve curve) {
+        beginning = curve == null ? BlendCurve.NONE : curve;
+    }
+
+    public BlendCurve beginningTransition() {
+        return beginning;
+    }
+
+    /** Stops the sounds this timeline started. */
+    public void stopSounds() {
+        sounds.stopAll();
     }
 
     public PlaybackState state() {
@@ -157,7 +174,9 @@ public final class AnimationPlayer {
      */
     public void process(float renderTicks, AnimationContext ctx, boolean executeEvents) {
         float savedTime = ctx.animTime;
+        AnimationPlayer savedPlayer = ctx.player;
         ctx.animTime = animTime;
+        ctx.player = this;
         try {
             float animTicks = animTicks(renderTicks);
             if (state == PlaybackState.ENDING_TRANSITION && animTicks >= ENDING_TRANSITION_TICKS) {
@@ -175,16 +194,16 @@ public final class AnimationPlayer {
                 }
                 animTickOffset = renderTicks;
                 animTicks = 0;
-                state = beginningTicks > 0 ? PlaybackState.BEGINNING_TRANSITION : PlaybackState.RUNNING;
+                state = beginning.length() > 0 ? PlaybackState.BEGINNING_TRANSITION : PlaybackState.RUNNING;
             }
             resetBoneQueues();
             if (state == PlaybackState.BEGINNING_TRANSITION) {
-                if (animTicks < beginningTicks) {
+                if (animTicks < beginning.length()) {
                     setAnimTime(ctx, 0);
                     runBeginningTransition(ctx, animTicks);
                     return;
                 }
-                animTicks -= beginningTicks;
+                animTicks -= beginning.length();
                 animTickOffset = renderTicks - animTicks;
                 state = PlaybackState.RUNNING;
             }
@@ -200,6 +219,7 @@ public final class AnimationPlayer {
                     }
                 }
                 setAnimTime(ctx, animTicks / 20f);
+                executeSoundsTo(ctx, animTicks, executeEvents);
                 if (executeEvents) {
                     executeInstructionsTo(ctx, animTicks);
                 }
@@ -215,6 +235,7 @@ public final class AnimationPlayer {
             }
         } finally {
             ctx.animTime = savedTime;
+            ctx.player = savedPlayer;
         }
     }
 
@@ -231,6 +252,20 @@ public final class AnimationPlayer {
                 run(ctx, list[i].programs);
             }
             nextInstruction = 0;
+        }
+        nextSound = 0;
+        sounds.stopAll();
+    }
+
+    /** Upstream {@code SoundKeyframeExecutor.executeTo}: passed keys play only while events may run. */
+    private void executeSoundsTo(AnimationContext ctx, float animTicks, boolean executeEvents) {
+        AnimationClip.SoundKey[] list = current.sounds;
+        while (nextSound < list.length && list[nextSound].tick <= animTicks) {
+            String effect = list[nextSound].effect;
+            nextSound++;
+            if (executeEvents && !effect.isEmpty()) {
+                sounds.play(ctx.soundBackend(), 0, effect, false, 1, 1, false);
+            }
         }
     }
 
@@ -282,7 +317,7 @@ public final class AnimationPlayer {
 
     private void runBeginningTransition(AnimationContext ctx, float ticks) {
         float weight = blendWeight(ctx);
-        float progress = beginningTicks != 0 ? ticks / beginningTicks : 1;
+        float progress = beginning.progress(ticks);
         for (BoneQueue q : active) {
             q.setBlendWeight(weight);
             if (q.channels[0] != null) {
@@ -357,6 +392,7 @@ public final class AnimationPlayer {
             active.add(q);
         }
         nextInstruction = 0;
+        nextSound = 0;
         return true;
     }
 
@@ -365,6 +401,8 @@ public final class AnimationPlayer {
             return;
         }
         state = PlaybackState.IDLE;
+        sounds.stopAll();
+        nextSound = 0;
         for (BoneQueue q : active) {
             q.setInactive();
         }

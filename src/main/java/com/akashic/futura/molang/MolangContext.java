@@ -30,6 +30,16 @@ public interface MolangContext {
      */
     MolangValue call(String namespace, String name, MolangValue[] args);
 
+    /**
+     * {@code symbol[index]} on a host symbol read without arguments, e.g. {@code args[0]} (the arguments of a user
+     * function or event handler: namespace {@code "global"}, name {@code "args"}).
+     *
+     * @return the element, or null when there is none (a missing value)
+     */
+    default MolangValue index(String namespace, String name, int index) {
+        return null;
+    }
+
     /** {@code variable.*} / {@code v.*}: persistent per entity across frames. */
     MolangVariables variables();
 

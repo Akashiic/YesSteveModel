@@ -138,10 +138,7 @@ public final class AnimationProcessor {
 
     private void pollQueue(BoneQueue q, AnimationContext ctx) {
         int b = q.bone;
-        if (!hasAnimation[b]) {
-            hasAnimation[b] = true;
-            active[activeCount++] = b;
-        }
+        touch(b);
         float[] v = tmp;
         float w = q.blendWeight();
         int o = b * 3;
@@ -150,46 +147,25 @@ public final class AnimationProcessor {
             float ending = 0;
             switch (q.kind[0]) {
                 case BoneQueue.KEY:
-                    q.segment[0].sample(ctx, q.progress[0], v, 0, scratch);
-                    rememberLerp(q, 0, v);
+                    sampleKey(q, 0, ctx, v);
                     if (w != 1) {
                         mul(v, w);
                     }
                     break;
                 case BoneQueue.BEGIN:
-                    q.channels[0].transitionTarget()
-                        .eval(ctx, v, 0);
+                    transitionTarget(q, 0, ctx, v);
                     mul(v, w);
                     AnimMath.lerpRotation(q.progress[0], q.transitionOffset, 0, v, 0, initRot, o, v, 0, rotScratch);
                     break;
                 default:
-                    System.arraycopy(q.endOffset, 0, v, 0, 3);
-                    rememberLerp(q, 0, v);
+                    endValue(q, 0, v);
                     ending = q.progress[0];
                     if (w != 1) {
                         mul(v, w);
                     }
                     break;
             }
-            if (!runRot[b]) {
-                runRot[b] = true;
-                rot[o] = rot[o + 1] = rot[o + 2] = 0;
-            }
-            lastRotTime[b] = renderTicks;
-            if (blend) {
-                // legacy additive parallel layers: assumed never to be blending out
-                cachedRot[o] += v[0];
-                cachedRot[o + 1] += v[1];
-                cachedRot[o + 2] += v[2];
-                System.arraycopy(cachedRot, o, rot, o, 3);
-            } else {
-                if (ending == 0) {
-                    System.arraycopy(v, 0, rot, o, 3);
-                } else {
-                    AnimMath.lerpRotation(ending, v, 0, rot, o, initRot, o, rot, o, rotScratch);
-                }
-                System.arraycopy(rot, o, cachedRot, o, 3);
-            }
+            applyRotation(b, v, ending);
         }
 
         if (q.kind[1] != BoneQueue.NONE) {
@@ -201,12 +177,7 @@ public final class AnimationProcessor {
             if (weight != 1) {
                 mul(v, weight);
             }
-            if (!runPos[b]) {
-                runPos[b] = true;
-                pos[o] = pos[o + 1] = pos[o + 2] = 0;
-            }
-            lastPosTime[b] = renderTicks;
-            applyLinear(v, ending, pos, o);
+            applyPosition(b, v, ending);
         }
 
         if (q.kind[2] != BoneQueue.NONE) {
@@ -220,25 +191,98 @@ public final class AnimationProcessor {
                     v[i] = AnimMath.weightedScale(v[i], weight);
                 }
             }
-            if (!runScl[b]) {
-                runScl[b] = true;
-                scl[o] = scl[o + 1] = scl[o + 2] = 1;
-            }
-            lastSclTime[b] = renderTicks;
-            applyLinear(v, ending, scl, o);
+            applyScale(b, v, ending);
         }
+    }
+
+    /** Marks a bone as driven this frame (it eases back to rest once nothing drives it). */
+    void touch(int b) {
+        if (!hasAnimation[b]) {
+            hasAnimation[b] = true;
+            active[activeCount++] = b;
+        }
+    }
+
+    /**
+     * Upstream {@code AnimationVec3.applyRotation} for the current controller: the value replaces the bone's rotation
+     * (fading from it while {@code ending} is above 0), or is added to it for a {@code blendRotation} controller.
+     */
+    void applyRotation(int b, float[] v, float ending) {
+        int o = b * 3;
+        if (!runRot[b]) {
+            runRot[b] = true;
+            rot[o] = rot[o + 1] = rot[o + 2] = 0;
+        }
+        lastRotTime[b] = renderTicks;
+        if (blend) {
+            // legacy additive parallel layers: assumed never to be blending out
+            cachedRot[o] += v[0];
+            cachedRot[o + 1] += v[1];
+            cachedRot[o + 2] += v[2];
+            System.arraycopy(cachedRot, o, rot, o, 3);
+        } else {
+            if (ending == 0) {
+                System.arraycopy(v, 0, rot, o, 3);
+            } else {
+                AnimMath.lerpRotation(ending, v, 0, rot, o, initRot, o, rot, o, rotScratch);
+            }
+            System.arraycopy(rot, o, cachedRot, o, 3);
+        }
+    }
+
+    /** Upstream {@code AnimationVec3.apply} on the position (pixels). */
+    void applyPosition(int b, float[] v, float ending) {
+        int o = b * 3;
+        if (!runPos[b]) {
+            runPos[b] = true;
+            pos[o] = pos[o + 1] = pos[o + 2] = 0;
+        }
+        lastPosTime[b] = renderTicks;
+        applyLinear(v, ending, pos, o);
+    }
+
+    /** Upstream {@code AnimationVec3.apply} on the scale. */
+    void applyScale(int b, float[] v, float ending) {
+        int o = b * 3;
+        if (!runScl[b]) {
+            runScl[b] = true;
+            scl[o] = scl[o + 1] = scl[o + 2] = 1;
+        }
+        lastSclTime[b] = renderTicks;
+        applyLinear(v, ending, scl, o);
+    }
+
+    /** A keyframe point's value ({@code KeyFramePoint.getLerpPoint}), remembered for an ending transition. */
+    void sampleKey(BoneQueue q, int c, AnimationContext ctx, float[] v) {
+        q.segment[c].sample(ctx, q.progress[c], v, 0, scratch);
+        rememberLerp(q, c, v);
+    }
+
+    /** Where a beginning transition goes ({@code BeginningTransitionPoint.getTransitionDst}). */
+    void transitionTarget(BoneQueue q, int c, AnimationContext ctx, float[] v) {
+        q.channels[c].transitionTarget()
+            .eval(ctx, v, 0);
+    }
+
+    /** An ending point's value ({@code EndingTransitionPoint.getLerpPoint}), remembered. */
+    void endValue(BoneQueue q, int c, float[] v) {
+        System.arraycopy(q.endOffset, c * 3, v, 0, 3);
+        rememberLerp(q, c, v);
+    }
+
+    /** {@code MathUtil.lerpRotationValues} against a bone's rest rotation: {@code out = lerp(t, begin, end)}. */
+    void lerpRotation(int b, float t, float[] begin, int bo, float[] end, float[] out) {
+        AnimMath.lerpRotation(t, begin, bo, end, 0, initRot, b * 3, out, 0, rotScratch);
     }
 
     /** Position or scale point value (unweighted); returns the ending-transition progress (0 if not ending). */
     private float pollLinear(BoneQueue q, int c, AnimationContext ctx, float[] v) {
         switch (q.kind[c]) {
             case BoneQueue.KEY:
-                q.segment[c].sample(ctx, q.progress[c], v, 0, scratch);
-                rememberLerp(q, c, v);
+                sampleKey(q, c, ctx, v);
                 return 0;
             case BoneQueue.BEGIN: {
-                q.channels[c].transitionTarget()
-                    .eval(ctx, v, 0);
+                transitionTarget(q, c, ctx, v);
                 float t = q.progress[c];
                 int off = c * 3;
                 for (int i = 0; i < 3; i++) {
@@ -248,8 +292,7 @@ public final class AnimationProcessor {
                 return 0;
             }
             default:
-                System.arraycopy(q.endOffset, c * 3, v, 0, 3);
-                rememberLerp(q, c, v);
+                endValue(q, c, v);
                 return q.progress[c];
         }
     }

@@ -45,6 +45,11 @@ public final class MemoryModelSource implements ModelSource {
     }
 
     @Override
+    public java.util.List<String> list() {
+        return new java.util.ArrayList<>(files().keySet());
+    }
+
+    @Override
     public String name() {
         return name;
     }

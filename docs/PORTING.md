@@ -23,8 +23,8 @@ Base: Yes Steve Model `dev/1.20`, commit `15c2c25` (2026-11-01). O estudo comple
 | `format/parser` (montagem) | 2,6 mil | O upstream monta um container protobuf com Molang compilado e buffers nativos; aqui monta direto o modelo em memória | A fazer |
 | resto de `format` (schema, container, legacy, media) | 5 mil | Container `.mxc`, importador legado e áudio Opus: não vêm | Fora |
 | `model` (catálogo, carregamento) | 25,2 mil | Vem com ajustes (15 de 171 usam Minecraft) | A fazer |
-| `geckolib3` (controladores, processador, ossos) | 6,3 mil | Lógica vem; desenho reescrito | **Lógica portada** em `anim` (controladores Bedrock: fase 5) |
-| `expression` (Molang) | 10,7 mil | Gramática (`frontend/MolangSourceParser`) e `math.*` (`MathBuiltins`, `ControlBuiltins`) adaptados em `molang/`; motor novo (interpretador de árvore) | **Interpretador feito**; funções do hospedeiro (`query`, `ysm`, `ctrl`...) a fazer na animação |
+| `geckolib3` (controladores, processador, ossos) | 6,3 mil | Lógica vem; desenho reescrito | **Lógica portada** em `anim` (controladores Bedrock, funções e sons: fase 5a) |
+| `expression` (Molang) | 10,7 mil | Gramática (`frontend/MolangSourceParser`) e `math.*` (`MathBuiltins`, `ControlBuiltins`) adaptados em `molang/`; motor novo (interpretador de árvore) | **Interpretador feito**; funções do hospedeiro (`query`, `ysm`, `ctrl`, `fn`) em `anim/PlayerMolangContext` |
 | `client` (render, GUI, controladores do jogador) | 21,4 mil | Lógica dos controladores vem; render e GUI reescritos | A fazer |
 | `network`, `capability`, `mixin`, `event`, `command`, `config` | ~14 mil | Reescritos para a 1.7.10 | **Rede e comandos feitos** na fase 4a (protocolo próprio, não o do upstream) |
 | `natives` | 4,1 mil | Não vem | Fora |
@@ -713,6 +713,152 @@ Achados fora do futura3d:
   jogador (no teste foi posta só no cliente que a fotografou).
 
 Testes: 313 (sem mudança: a ponte do Backhand depende do FML carregado).
+
+## Fase 5a: controladores Bedrock, funções do modelo e sons ("Tier 2")
+
+Tudo em `anim` (Java puro, testado), mais uma cola mínima no cliente para o som. O carregador (`model/ModelLoader`)
+agora lê também os arquivos de `files.player.animation_controllers` (`LoadedModel.controllers`, um arquivo posterior
+substitui um controlador de mesmo nome), os `.molang` de `function_path` (padrão `functions/`, recursivo, na ordem do
+upstream: arquivos da pasta por nome, depois as subpastas) e a lista de sons de `sound_path` (padrão `sounds/`; o
+`files.player.sound_path` antigo também). Para achar essas pastas, `ModelSource` ganhou `list()`: pasta, zip, memória
+e os embutidos (pela URL do `ysm.json`: diretório no dev e nos testes, entradas do jar no jar de release, com teste
+que monta um jar).
+
+| Upstream | Aqui |
+|---|---|
+| `geckolib3/core/controller/BedrockAnimationController`, `expression/host/ControllerExecutionState` | `anim/BedrockController` |
+| `geckolib3/core/controller/HybridAnimationController` | `anim/HybridController` |
+| `geckolib3/core/controller/transition/{IBlend,LinearBlend,SegmentedBlend}Transition` | `anim/BlendCurve` |
+| `format/parser/AnimationControllerBuilder`, `AnimationProtoMapper.controllerFile`, `builder/controller/*` | `anim/ControllerData` |
+| `client/controller/{Multi,Single,Parallel,Armor}ControllerDiscovery`, `collections/*ControllerCollection` | `anim/ModelAnimations` (descoberta), `PlayerControllers`, `FirstPersonControllers` |
+| `ModelRenderTargetLoader.commonAssets` (funções `<nome>@<evento>`), `expression/inventory/MolangEventCatalog` | `anim/ModelFunctions` |
+| `EntityExpressionRuntime` (`dispatchPlayerInit/Update/Sync/Deferred`, `codedController`) | `anim/PlayerAnimator`, `CodedController` |
+| `geckolib3/core/event/SoundKeyframeExecutor`, `InstructionKeyFrameExecutor` | `anim/AnimationPlayer` |
+| `client/sound/instance/SoundInstanceManager`, `expression/host/ModelSoundId` | `anim/SoundScope` |
+| `expression/host/builtin/ModelBuiltins` (`play_sound`, `stop_sound`, `stop_all_sounds`, `sync`, `defer`) | `anim/PlayerMolangContext` |
+| `client/sound/instance/*` (tocar no jogo) | `client/ModelSounds` (paulscode da 1.7.10), `client/SoundBytesUrl` |
+
+### Controladores Bedrock
+
+* Estado inicial `initial_state` (padrão `default`); a cada quadro as transições do estado atual são testadas na ordem
+  em que foram declaradas e a primeira verdadeira vence. Um estado que não toca nada é deixado no mesmo quadro se uma
+  transição dele vale, sem visitar um estado duas vezes no quadro (laço `a → b → a` termina).
+* `animations`: nomes ou `{nome: condição}` (condição em branco vale sempre); todas tocam juntas, cada uma num
+  `AnimationPlayer` próprio, e a mistura por osso é a do `BlendBoneAnimationQueue` do upstream: valores somados pelo
+  `blend_weight` de cada clipe (escala multiplicada com peso), um clipe saindo pesa `1 - progresso` e o resultado
+  desvanece pelo menor progresso; na entrada, os alvos somados são interpolados desde a pose que o osso tinha.
+* Numa transição de verdade: param os sons que o controlador tocou, roda o `on_exit` do estado velho, o `on_entry` do
+  novo (cada lista vira um programa só, linhas terminadas por `;`, como `compileStatements`), tocam os
+  `sound_effects` do estado, e cada animação recomeça com o `blend_transition` do estado (número = linear em
+  segundos; objeto `"segundos": peso-da-pose-velha` = curva por segmentos; ausente = sem transição).
+* `query.all_animations_finished` / `any_animation_finished` são as do controlador que está rodando (Bedrock: das
+  animações que se aplicam; codificado: a do seu clipe, como antes).
+* `ysm-builtin`: o estado não toca nada e o `HybridController` passa o quadro ao predicado codificado de mesmo nome,
+  cujo clipe entra com o `blend_transition` desse estado; ao sair, o codificado é reiniciado. `ysm-entry-<x>` roda o
+  controlador `<nome>.<x>` enquanto está no estado (até 5 níveis).
+* Substituição: todo controlador do jogador menos `cap` é um `HybridController`; se o modelo declara um controlador
+  com o mesmo nome (`player.main`, `player.hold_mainhand`, `player.parallel_3`, `player.armor_head`...), ele roda no
+  lugar do predicado. Declarado vazio (`{}`, há dois nos embutidos) substitui por nada, como no upstream.
+* Criados só quando declarados (controlador nos arquivos ou função `player_ctrl_<nome>`), na ordem do upstream:
+  `pre_main*`, `post_main*`, `pre_hold*`, `post_hold*`, `pre_swing*`, `post_swing*`, `pre_use*`, `post_use*`
+  (`MultiControllerDiscovery`: o nome exato e `<nome>_*`, em ordem alfabética), `parallel_*`/`pre_parallel_*` além
+  dos que vêm de animações `parallelN`, e `armor_<slot>` também para `mainhand`/`offhand`. Primeira pessoa:
+  `fp.arm.misc` quando declarado (vai primeiro) e `fp.arm.parallel_*` declarados.
+* `blend_via_shortest_path` é lido e não muda nada: a mistura de rotação já é por quatérnio normalizado (caminho
+  mais curto), e o upstream 2.x também ignora o campo.
+
+### Funções e eventos
+
+* `functions/<nome>@<evento>.molang`: `nome.molang` só se chama, `@evento.molang` só trata o evento,
+  `nome@evento.molang` as duas coisas. `fn.<nome>(a, b)` chama com `args[0]`, `args[1]` (o interpretador ganhou
+  `MolangContext.index` para `simbolo[i]`; argumento ausente é valor ausente, `??` funciona), os `t.*` da função são
+  dela, `return` devolve; chamadas aninhadas param em 16 níveis (o upstream recusa recursão ao compilar).
+* Eventos, como o catálogo do upstream: `player_init` (uma vez, no primeiro tick do animador), `player_update` (todo
+  tick, `args[0]` = 1, antes dos controladores), `sync`, `defer` e `<categoria>_ctrl_<nome>`. Outros sufixos são
+  ignorados. A primeira pessoa só fica com `defer` e os de controlador.
+* Sobreposição de controlador codificado: o primeiro tratador de `player_ctrl_<nome>` roda antes do predicado (com o
+  contexto de animação do controlador, então `ctrl.set_animation`, `ctrl.set_beginning_transition_length` e os sons
+  vão para ele); resultado exatamente 2 continua, 3 para, 4 pausa, qualquer outro valor deixa o predicado Java
+  decidir.
+* `ysm.defer(atraso, valores...)`: guardado (no máximo 64 por quadro) e entregue aos tratadores `@defer` com
+  `args` = atraso e valores, do mais novo para o mais velho, depois dos eventos e no fim do quadro. O atraso não espera
+  tempo nenhum (no upstream também é só um argumento). Simplificado: o contexto de animação de quando foi pedido não é
+  restaurado.
+* `ysm.sync(valores...)` (até 16): vai para um `anim/SyncSink` do animador. Sem sink, ou se ele recusa, os tratadores
+  `@sync` rodam na hora (o upstream sem servidor faz isso). **Encaixe para a rede** (outro trabalho):
+  `client/ModelSync.setTransport(Transport)`; com o transporte conectado, o `ysm.sync` do jogador local vai para
+  `send(values)` e o de outros jogadores não faz nada; o que o servidor repassar entra por
+  `ModelSync.receive(jogador, valores)` → `PlayerAnimator.dispatchSync`.
+
+### Quadros-chave de instrução e sons
+
+* `timeline` já rodava (fase 2); agora com teste de tempo (cada instrução no tick em que a reprodução passa por ela, as
+  que faltam rodam na volta do laço) e de `merge_multiline_expr` (as linhas de uma entrada viram um programa e dividem
+  os `t.*`).
+* `sound_effects` dos clipes tocam quando a reprodução passa por eles (só nos quadros que executam eventos), e param
+  quando o laço recomeça ou o clipe acaba (o upstream faz igual: a música de um emote em laço é cortada na volta).
+* `ysm.play_sound(id, nome, modo = 0, volume = 1, pitch = 1)`: id numérico (0 anônimo, negativo nunca toca) ou texto,
+  que não se confundem; modo bit 1 substitui o som ainda tocando com o mesmo id (sem ele, o pedido é recusado), bit 2
+  usa o escopo do jogador, bit 4 repete. `ysm.stop_sound(id, global)`, `ysm.stop_all_sounds(global)`. Escopos, como o
+  upstream: o da animação rodando, senão o do controlador Bedrock, senão o do jogador.
+* Os `sound_effects` de um estado de controlador tocam na entrada do estado. **Diferente do upstream 2.x**, que tem a
+  chamada mas nunca toca (o mapeamento do container passa uma lista vazia e o teste está invertido); o YSM antigo
+  tocava.
+* No jogo (`client/ModelSounds`): um nome sem `:` é um arquivo da pasta de sons do modelo, tocado direto no
+  `SoundSystem` do paulscode que o `SoundManager` da 1.7.10 guarda (alcançado por reflexão, nomes MCP e SRG), com uma
+  URL `futura3d:` que serve os bytes lidos do modelo (`SoundBytesUrl`). Arquivos até 256 KiB são decodificados e
+  guardados pelo paulscode (liberados quando o modelo é liberado); maiores tocam em streaming. Posicional no jogador
+  (atenuação linear, distância `16 × max(volume, 1)`), seguindo-o a cada tick, volume × categoria "Jogadores", pitch
+  limitado a 0,5–2 (o OpenAL; o upstream aceita 0,001–1000). Um nome com `:` é um evento de som vanilla, tocado como
+  `ISound` que segue o jogador. Limites: 6 sons por jogador e 16 ao todo (o upstream não limita). Param quando o
+  jogador some, muda de mundo ou de modelo.
+* **Opus**: o conversor do upstream grava Ogg Opus, e alguns embutidos (`wine_fox/14_momo`: `fly_on`, `sfmb`,
+  `dooble`, `owo`) já são Opus; a 1.7.10 só decodifica Vorbis (JOrbis). Esses arquivos são pulados com uma linha no
+  log (`Skipped sound ... Ogg Opus`). Os outros 50 `.ogg` embutidos são Vorbis.
+
+### Resultado
+
+Harness (`dev/RenderHarness.controllerSteps`, `futura3d-harness` com `only ctrl`), Xvfb + llvmpipe:
+
+![wine_fox/15_kluonoa: v.roaming.car = 0 e = 1. O carro aparece pelo player_ctrl_parallel_6 do modelo e pelos controladores post_main_car_*; o pre_main (função @player_ctrl_pre_main) troca para 开车_待命](img/fase5a-kluonoa-carro.png)
+![Espada: misc/4_default_controllers com o post_hold do arquivo no estado sword; wine_fox/21_saint no meio do golpe, post_swing no estado 剑2](img/fase5a-espada.png)
+
+Do relatório do harness (`run/client/futura3d-harness.txt`): `player.post_hold [bedrock] sword` e
+`player.post_swing [bedrock] attack2` no modelo de controladores padrão; `player.pre_main Coded -> 开车_行走` (a
+função do modelo decidindo) e `player.parallel_2 [bedrock] 常态` na Kluonoa andando de carro; `player.post_swing
+[bedrock] 剑2` na Saint. Sons, verificados pelo que o sistema de som recebeu (`Model sound ... handed to the sound
+system`): `atk1`/`atk2`/`atk3ready`/`atk3` (quadros-chave dos golpes da Saint), `shengyin`/`magic01` (arco puxado;
+`magic01` com 465 KB em streaming) e `magic01_shoot` (a função `ArrowShoot@player_ctrl_use` ao soltar o arco, modo 3),
+`get_down` (emote `extra3` da Wedding, streaming), e o `dooble` Opus da Momo pulado. Sem placa de som, o OpenAL Soft
+foi posto para gravar num WAV (`~/.alsoftrc` com `drivers = wave`): o sistema de som inicializa e mistura, mas o
+arquivo gravado pelo processo encerrado à força não serve para conferir quais sons saíram. A decodificação em si tem
+teste: `SoundDecodeTest` passa um `.ogg` embutido pela URL de memória no `CodecJOrbis` da 1.7.10 e confere o áudio.
+
+Os sons de eventos de 1.20 que os modelos pedem (`minecraft:item.trident.throw`, `minecraft:entity.player.attack.knockback`)
+não existem na 1.7.10: uma linha no log por nome e nada toca.
+
+**A checar**:
+
+* Lado a lado com o YSM 1.20 nos modelos com controladores (`misc/4_default_controllers`, Kluonoa, Saint, Momo,
+  Sta): os estados e as misturas foram portados linha a linha, mas só testes e fotos os viram.
+* Ouvir os sons num cliente de verdade: volume, distância, o pitch limitado, a música longa em streaming, os 6 por
+  jogador; e o que o jogo pausado faz (os sons do modelo não pausam com o menu, os vanilla sim).
+* Modelos do servidor: `net/CachedModelSource` ainda não implementa `list()`, então modelos vindos do servidor não
+  acham funções nem sons (controladores sim, porque estão no `ysm.json`). É uma linha no pacote `net` (devolver as
+  chaves do mapa de arquivos), deixada para quem cuida da rede.
+* `ysm.sync` pela rede: o encaixe (`ModelSync`) existe, o transporte não (outro trabalho).
+* `defer` sem restaurar o contexto de animação da chamada; `ysm.keyboard` continua 0 (os códigos GLFW não são os do
+  LWJGL 2).
+* O arco vanilla na mão da Saint depois do tiro sai grande ao lado da cabeça na foto do harness (posição de item da
+  fase 3a com a pose de arco do modelo), não investigado aqui.
+
+Testes: 365 (52 desta fase: máquina de estados, transições em ordem, entrada e saída, estados vazios e laços, soma
+por `blend_weight` e condições, `ysm-builtin`, substituição do `player.main`, curva de mistura, subcontrolador,
+sons de estado, controladores opcionais e de primeira pessoa; funções com `args`, `t.*` próprios, recursão cortada,
+`player_init`/`player_update`, sobreposição de controlador, `sync` com e sem sink, `defer`; tempo das instruções e
+`merge_multiline_expr`; quadros-chave de som, modos e ids do `play_sound`; listagem de pastas, zip, memória e jar;
+decodificação Vorbis e detecção de Opus; e todos os embutidos com controladores ou funções animados por 600 quadros,
+corpo e braços, sem NaN e sem som sobrando).
 
 ## Fases
 

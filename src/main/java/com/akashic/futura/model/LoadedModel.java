@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.akashic.futura.format.pojo.animation.AnimationFile;
+import com.akashic.futura.format.pojo.controller.AnimationController;
 import com.akashic.futura.format.pojo.manifest.ModelManifest;
 import com.akashic.futura.geo.BakedGeometry;
 
@@ -23,9 +24,25 @@ public final class LoadedModel {
     public final List<String> textures;
     public final float heightScale;
     public final float widthScale;
+    /**
+     * Bedrock animation controllers of every {@code files.player.animation_controllers} file, by name
+     * ({@code player.main}, {@code fp.arm.misc}...); a later file replaces a controller of the same name.
+     */
+    public final Map<String, AnimationController> controllers;
+    /**
+     * User functions: the path under {@code function_path} (default {@code functions}) without {@code .molang}, e.g.
+     * {@code physics_init@player_init}, to the source, in upstream's file order.
+     */
+    public final Map<String, String> functions;
+    /**
+     * Sounds: the path under {@code sound_path} (default {@code sounds}) without its extension, e.g. {@code horn}, to
+     * the file's path in the source. Read when played.
+     */
+    public final Map<String, String> sounds;
 
     LoadedModel(ModelSource source, ModelManifest manifest, BakedGeometry main, BakedGeometry arm,
-        Map<String, AnimationFile> animations, List<String> textures, float heightScale, float widthScale) {
+        Map<String, AnimationFile> animations, List<String> textures, float heightScale, float widthScale,
+        Map<String, AnimationController> controllers, Map<String, String> functions, Map<String, String> sounds) {
         this.source = source;
         this.manifest = manifest;
         this.main = main;
@@ -34,6 +51,9 @@ public final class LoadedModel {
         this.textures = Collections.unmodifiableList(textures);
         this.heightScale = heightScale;
         this.widthScale = widthScale;
+        this.controllers = Collections.unmodifiableMap(controllers);
+        this.functions = Collections.unmodifiableMap(functions);
+        this.sounds = Collections.unmodifiableMap(sounds);
     }
 
     public String name() {

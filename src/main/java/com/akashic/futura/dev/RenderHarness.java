@@ -122,7 +122,136 @@ public final class RenderHarness {
         itemSteps();
         pickerSteps();
         serverSteps();
+        controllerSteps();
         onlySteps();
+    }
+
+    // Phase 5a: Bedrock controllers, functions and sounds. Steps "ctrl-*" ("only ctrl" runs just these).
+    private void controllerSteps() {
+        step("ctrl-default-sword", () -> {
+            ctrlModel("misc/4_default_controllers");
+            keys(false, false, false, true);
+            holdItem(new ItemStack(Items.diamond_sword));
+            swingSword = false;
+            view(2, 30);
+            atShot = () -> reportControllers("default-controllers, sword held");
+        });
+        step("ctrl-default-swing", () -> {
+            keys(false, false, false, true);
+            holdItem(new ItemStack(Items.diamond_sword));
+            view(2, 30);
+            atShot = () -> reportControllers("default-controllers, swinging");
+        });
+        step("ctrl-kluonoa-nocar", () -> {
+            ctrlModel("wine_fox/15_kluonoa");
+            keys(false, false, false, false);
+            setVariable("roaming.car", 0);
+            view(2, 30);
+        });
+        step("ctrl-kluonoa-car", () -> {
+            setVariable("roaming.car", 1);
+            view(2, 30);
+            atShot = () -> reportControllers("kluonoa, v.roaming.car = 1");
+        });
+        step("ctrl-kluonoa-car-walk", () -> {
+            keys(true, false, false, false);
+            view(2, 30);
+            atShot = () -> reportControllers("kluonoa, car, walking");
+        });
+        step("ctrl-saint-swing", () -> {
+            setVariable("roaming.car", 0);
+            ctrlModel("wine_fox/21_saint");
+            keys(false, false, false, true);
+            holdItem(new ItemStack(Items.diamond_sword));
+            view(2, 30);
+            atShot = () -> reportControllers("saint, swinging a sword (sound keyframes atk1/atk2/atk3)");
+        });
+        step("ctrl-saint-bow", () -> {
+            keys(false, false, false, false);
+            holdItem(new ItemStack(Items.bow));
+            view(2, 30);
+            atTick5 = () -> holdUse = true;
+            // releasing the bow: the model's player_ctrl_use function plays magic01_shoot
+            atTick30 = () -> holdUse = false;
+            atShot = () -> reportControllers("saint, bow drawn then released");
+        });
+        step("ctrl-wedding-emote-sound", () -> {
+            holdUse = false;
+            ctrlModel("wine_fox/18_wedding");
+            keys(false, false, false, false);
+            view(2, 30);
+            atTick5 = () -> {
+                PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer)
+                    .playExtra("extra3");
+                reportSounds("wedding, extra3 started (sound keyframe get_down)");
+            };
+            atShot = () -> reportSounds("wedding, extra3 after 40 ticks");
+        });
+        step("ctrl-momo-opus", () -> {
+            ctrlModel("wine_fox/14_momo");
+            view(2, 30);
+            atTick5 = () -> {
+                PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer)
+                    .playExtra("dooble");
+                reportSounds("momo, dooble started (an Ogg Opus file: skipped)");
+            };
+        });
+        step("ctrl-end", () -> {
+            PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer)
+                .stopExtra();
+            reportSounds("end");
+            keys(false, false, false, false);
+            PlayerModels.INSTANCE.use("default");
+        });
+    }
+
+    private void ctrlModel(String builtin) {
+        PlayerModels.INSTANCE.setEnabled(true);
+        PlayerModels.INSTANCE.use(builtin);
+        copies = 0;
+        keepScreen = false;
+        LocalEmotes.INSTANCE.stop();
+    }
+
+    private void holdItem(ItemStack stack) {
+        EntityPlayerMP p = serverPlayer(Minecraft.getMinecraft());
+        if (p != null) {
+            p.inventory.setInventorySlotContents(p.inventory.currentItem, stack);
+        }
+    }
+
+    private void setVariable(String name, double value) {
+        com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer);
+        if (a != null) {
+            a.variables()
+                .set(name, com.akashic.futura.molang.MolangValue.of(value));
+        }
+    }
+
+    /** Logs the state of every controller that is not idle, and the sounds so far. */
+    private void reportControllers(String label) {
+        com.akashic.futura.anim.PlayerAnimator a = PlayerModels.INSTANCE.animator(Minecraft.getMinecraft().thePlayer);
+        report("controllers: " + label);
+        if (a == null) {
+            return;
+        }
+        for (com.akashic.futura.anim.AnimationController c : a.controllers()) {
+            boolean bedrock = c instanceof com.akashic.futura.anim.HybridController
+                && ((com.akashic.futura.anim.HybridController) c).bedrock() != null;
+            if (bedrock || c.state() != com.akashic.futura.anim.PlaybackState.IDLE) {
+                report("  " + c.name() + (bedrock ? " [bedrock] " : " ") + c.stateName());
+            }
+        }
+        reportSounds(label);
+    }
+
+    private void reportSounds(String label) {
+        report(
+            "  sounds (" + label
+                + "): accepted by the sound system so far "
+                + com.akashic.futura.client.ModelSounds.INSTANCE.started()
+                + ", playing "
+                + com.akashic.futura.client.ModelSounds.INSTANCE.playing());
     }
 
     // Phase 4a: a server model through the integrated server's protocol. Needs a model folder or zip in
@@ -508,6 +637,11 @@ public final class RenderHarness {
             return;
         }
         String name = names.get(index);
+        if (atShot != null) {
+            Runnable r = atShot;
+            atShot = null;
+            r.run();
+        }
         ScreenShotHelper.saveScreenshot(
             mc.mcDataDir,
             "futura3d-" + name + ".png",
@@ -558,6 +692,9 @@ public final class RenderHarness {
     private boolean holdUse;
     private int tapUse = -1;
     private Runnable atTick5;
+    private Runnable atTick30;
+    /** Runs right before the step's screenshot. */
+    private Runnable atShot;
     private boolean itemModelLoaded;
 
     /**
@@ -801,6 +938,11 @@ public final class RenderHarness {
         if (ticks == 5 && atTick5 != null) {
             Runnable r = atTick5;
             atTick5 = null;
+            r.run();
+        }
+        if (ticks == 30 && atTick30 != null) {
+            Runnable r = atTick30;
+            atTick30 = null;
             r.run();
         }
         boolean tap = tapUse >= 0 && ticks == tapUse;

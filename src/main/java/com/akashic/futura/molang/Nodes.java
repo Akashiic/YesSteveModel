@@ -820,7 +820,11 @@ final class Nodes {
         }
     }
 
-    /** {@code value[index]}: upstream indexes read-only arrays only; no value here is an array, so it is missing. */
+    /**
+     * {@code value[index]}: upstream indexes read-only arrays only. No value here is an array, so it is missing, except
+     * a host symbol read without arguments ({@code args[0]} in a user function), which the context indexes
+     * ({@link MolangContext#index}).
+     */
     static final class Index extends Node {
 
         final Node base;
@@ -833,6 +837,15 @@ final class Nodes {
 
         @Override
         MolangValue eval(Frame f) {
+            if (base instanceof HostCall && ((HostCall) base).args.length == 0) {
+                HostCall symbol = (HostCall) base;
+                double i = index.num(f);
+                if (!finite(i)) {
+                    throw Abort.INSTANCE;
+                }
+                f.countCall();
+                return normalize(f.context.index(symbol.namespace, symbol.name, (int) i));
+            }
             base.eval(f);
             index.num(f);
             return null;

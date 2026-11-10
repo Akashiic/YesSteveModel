@@ -121,6 +121,11 @@ public final class ZipModelSource implements ModelSource {
     }
 
     @Override
+    public java.util.List<String> list() {
+        return new java.util.ArrayList<>(files().keySet());
+    }
+
+    @Override
     public String name() {
         return files.name();
     }
