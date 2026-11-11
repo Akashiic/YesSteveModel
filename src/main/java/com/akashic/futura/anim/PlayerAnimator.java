@@ -91,6 +91,8 @@ public final class PlayerAnimator {
     // the rod (FishingStates): its phase, and the serial of the phase the fishing controller last started
     final FishingStates.Tracker fishing = new FishingStates.Tracker();
     int fishingSerial = -1;
+    /** Keeps the rod straight ahead of the torso while fishing (created on first use). */
+    private RodAim rodAim;
 
     // extra animation (upstream CustomPlayerEntity)
     boolean playingExtra;
@@ -172,6 +174,18 @@ public final class PlayerAnimator {
             trimSounds();
         }
         writePose();
+        straightenRod();
+    }
+
+    /** While fishing, the rod straight ahead of the torso whatever the model's arms do ({@link RodAim}). */
+    private void straightenRod() {
+        if (model.firstPerson || inputs == null || !fishing.phase().straight || !FishingStates.holdsRod(inputs)) {
+            return;
+        }
+        if (rodAim == null) {
+            rodAim = new RodAim(model.geometry);
+        }
+        rodAim.straighten(pose);
     }
 
     /** Upstream {@code dispatchPersistentEvents}: {@code player_init} once, then {@code player_update(true)}. */

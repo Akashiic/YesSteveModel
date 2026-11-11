@@ -54,18 +54,33 @@ public final class FishingStates {
     public enum Phase {
 
         /** No rod in the main hand. */
-        NONE(null, false, 0),
-        /** A rod in the hand, line in: nothing of ours plays (the hold and main controllers do). */
-        READY(null, false, 0.15f),
-        DRAW("draw", false, 0.1f),
-        CAST("cast", false, 0.04f),
-        WAIT("wait", true, 0.3f),
-        BITE("bite", false, 0.03f),
-        FIGHT("fight", true, 0.12f),
-        REEL("reel", true, 0.15f),
-        CATCH("catch", false, 0.05f),
-        ESCAPE("escape", false, 0.06f),
-        RETRIEVE("retrieve", false, 0.04f);
+        NONE(null, false, 0, false),
+        /**
+         * A rod in the hand, line in: nothing of ours plays (the hold and main controllers do); the rod kept straight.
+         */
+        READY(null, false, 0.15f, true),
+        DRAW("draw", false, 0.1f, false),
+        CAST("cast", false, 0.04f, true),
+        WAIT("wait", true, 0.3f, true),
+        BITE("bite", false, 0.03f, true),
+        FIGHT("fight", true, 0.12f, true),
+        REEL("reel", true, 0.15f, true),
+        CATCH("catch", false, 0.05f, true),
+        ESCAPE("escape", false, 0.06f, true),
+        RETRIEVE("retrieve", false, 0.04f, true),
+        // the reactions of AkashicFishing's rods (its Sanrio skins), told by the server like the fight
+        /** {@code carinho}: Shift and a left click; the rod held close, the free hand pets it. */
+        PET("pet", false, 0.12f, false),
+        /** {@code inspecionar}: two of them; the rod raised before the eyes while it turns in the hand. */
+        INSPECT("inspect", false, 0.15f, false),
+        /** {@code ociosa}: 30 s still; the rod on the shoulder, a yawn now and then (loops, line in). */
+        LAZY("lazy", true, 0.5f, false),
+        /** {@code encontro}: another such rod nearby; a wave with the free hand, the rod raised to greet. */
+        GREET("greet", false, 0.12f, false),
+        /** {@code rivalidade}: Kitty and Kuromi nearby; leaning in, the rod pointed at the rival. */
+        RIVAL("rival", false, 0.1f, true),
+        /** {@code comemoracao}: two fights won together; both arms up, a hop. */
+        CELEBRATE("celebrate", false, 0.06f, false);
 
         /** The clip ({@code fishing:<name>}), or null for none. */
         public final String animation;
@@ -73,11 +88,28 @@ public final class FishingStates {
         public final boolean loops;
         /** Beginning transition of the clip, in seconds. */
         public final float transitionSeconds;
+        /** Whether the rod is kept straight ahead of the torso ({@link RodAim}); off where it crosses the body. */
+        public final boolean straight;
 
-        Phase(String name, boolean loops, float transitionSeconds) {
+        Phase(String name, boolean loops, float transitionSeconds, boolean straight) {
             this.animation = name == null ? null : PREFIX + name;
             this.loops = loops;
             this.transitionSeconds = transitionSeconds;
+            this.straight = straight;
+        }
+
+        /** A reaction of the rod (not part of fishing itself): rest ({@code parada}) ends it. */
+        boolean reaction() {
+            return this == PET || this == INSPECT
+                || this == LAZY
+                || this == GREET
+                || this == RIVAL
+                || this == CELEBRATE;
+        }
+
+        /** A loop that needs the line out (waiting, fighting, reeling); the others loop with it in. */
+        boolean needsLine() {
+            return this == WAIT || this == FIGHT || this == REEL;
         }
 
         /** Whether the server's fight is on (a swing then is not a cast nor a retrieve). */
@@ -138,6 +170,25 @@ public final class FishingStates {
                 return Phase.ESCAPE;
             case "retrieve":
                 return Phase.RETRIEVE;
+            case "carinho":
+            case "pet":
+                return Phase.PET;
+            case "inspecionar":
+            case "inspect":
+                return Phase.INSPECT;
+            case "ociosa":
+            case "lazy":
+                return Phase.LAZY;
+            case "encontro":
+            case "greet":
+                return Phase.GREET;
+            case "rivalidade":
+            case "rival":
+                return Phase.RIVAL;
+            case "comemoracao":
+            case "comemoração":
+            case "celebrate":
+                return Phase.CELEBRATE;
             default:
                 return null;
         }
@@ -289,7 +340,9 @@ public final class FishingStates {
                 if (asked == Phase.CAST) {
                     cast(now);
                 } else if (asked == Phase.READY) {
-                    if (phase.fighting()) {
+                    if (phase.reaction()) {
+                        begin(line ? Phase.WAIT : Phase.READY, now); // moved, looked: the reaction is over
+                    } else if (phase.fighting()) {
                         // back to rest in the middle of the fight with the line still out: the fish got away (a rod
                         // without a fuga state is told parada); with the line gone, the fight just ended
                         begin(line ? Phase.ESCAPE : Phase.READY, now);
@@ -302,7 +355,9 @@ public final class FishingStates {
             }
 
             // what the client sees: swings and the line
-            if (swingStart && !phase.fighting() && phase != Phase.CATCH) {
+            // Shift with a left click is a gesture (AkashicFishing's carinho), not a cast: with sneak, only the bobber
+            // appearing casts
+            if (swingStart && !phase.fighting() && phase != Phase.CATCH && !(in.isSneaking() && !lastLine)) {
                 // the line as it was before this frame: a swing that comes with the bobber is the cast
                 if (!lastLine) {
                     cast(now);
@@ -321,6 +376,7 @@ public final class FishingStates {
             } else if (!line && lastLine) {
                 // the line came back: a catch or an escape keeps playing; otherwise the rod flicks back
                 if (phase != Phase.CATCH && phase != Phase.ESCAPE
+                    && !phase.reaction()
                     && !(phase == Phase.RETRIEVE && now - lastRetrieve <= RETRIEVE_GRACE_TICKS)) {
                     begin(Phase.RETRIEVE, now);
                     lastRetrieve = now;
@@ -335,7 +391,7 @@ public final class FishingStates {
                 if (clip == null || elapsed(now) >= clip.length + phase.transitionSeconds * 20) {
                     begin(line ? Phase.WAIT : Phase.READY, now);
                 }
-            } else if (phase.loops && !line) {
+            } else if (phase.needsLine() && !line) {
                 begin(Phase.READY, now); // the line is in: nothing to wait for or fight
             }
             if (phase == Phase.READY && line) {
