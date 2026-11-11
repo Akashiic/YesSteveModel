@@ -1367,6 +1367,47 @@ segurava o peixe num braço que não estava lá. Agora o Kunftig passa a mesma p
 **A checar** em jogo: os peixes das outras faixas e qualidades, andando com o peixe na mão (o braço fica na pose da
 faixa, sem o balanço de andar), e modelos com braços muito diferentes do padrão.
 
+## Armadura no modelo padrão e no Steve/Alex (`armor/ArmorFit`, `client/render/ArmorRenderer`)
+
+O upstream não desenha armadura nos modelos (o `CosmeticArmorCompat` dele só serve às condições `armor`). Aqui a
+armadura vestida aparece no **modelo padrão** (`builtin:default`) e no **Steve/Alex** (`misc/2_steve`, `misc/1_alex`,
+o visual de quem não escolheu modelo); os modelos customizados continuam sem armadura.
+
+* As quatro passadas são as do `RenderPlayer.shouldRenderPass` e do `RendererLivingEntity.doRender`: a textura do
+  `RenderBiped.getArmorResource` (com o `getArmorTexture` do Forge), a cor do couro tingido e o `overlay`, o brilho
+  de encantamento, o modelo de 1 px (capacete, peitoral, botas) e o de 0,5 px (calças).
+* **Armadura do bíped vanilla** (ferro, ouro, diamante, couro, malha, a de taumium e a do vazio do Thaumcraft e toda
+  armadura que só troca a textura): cada caixa do bíped é cortada onde o modelo dobra e cada corte é esticado sobre a
+  caixa de um osso (`ArmorFit`): a cabeça no `Head` (no padrão, uma caixa que cobre o cabelo), o tronco no
+  `UpperBody`, os braços no braço e no antebraço, as pernas na coxa e na canela, e no padrão o fim da bota no pé (com
+  o dedo). Os cortes levam as linhas certas da textura (`ArmorBoxes`, mesma disposição do `ModelBox`: cantos,
+  espelho, ordem das faces), então a armadura dobra no cotovelo e no joelho com a animação.
+* **Armadura com modelo próprio** (`Item.getArmorModel`: a armadura da fortaleza, os mantos e os óculos da revelação
+  do Thaumcraft, as dos cultistas): o modelo roda o próprio `render` uma vez sem escrever nada (é lá que a fortaleza
+  escolhe a máscara, os óculos e as peças do conjunto) e depois cada parte do bíped, com as peças penduradas nela, é
+  desenhada inteira no osso do primeiro corte (o braço inteiro no braço, a perna inteira na coxa), sem a pose do
+  bíped. Essa armadura não dobra no joelho e no cotovelo; peças que um modelo desenha fora das partes do bíped não
+  aparecem.
+* **Cosmetic Armor Reworked** (1.7.10, `lain.mods.cos`; `client/CosmeticArmor`, por reflexão): o item cosmético de
+  um slot aparece no lugar do vestido, e um slot marcado "mostrar pele" não mostra nada; com a tecla do mod que
+  esconde a armadura cosmética, aparece a vestida. Vale também para as condições `armor` dos modelos e para o
+  capacete-bloco (abóbora, cabeça) na cabeça de todos os modelos. O mod já troca a armadura durante o desenho do
+  jogador (`RenderPlayerEvent.Pre` a `Post`); a leitura dá a mesma resposta ali e fora dele.
+* Não é desenhado: o vermelho do dano sobre a armadura, e o `RenderPlayerEvent.SetArmorModel` não é disparado (mods
+  que desenham a própria armadura por esse evento, como as asas do EFR, já têm a sua ponte ou ficam de fora).
+
+![Armadura no modelo padrão e no Steve: ferro, couro tingido com ouro encantado e malha, a fortaleza e os mantos com
+os óculos do Thaumcraft, e o capacete cosmético com as botas escondidas do Cosmetic Armor Reworked
+(harness `only armor`)](img/armadura-modelos.png)
+
+Harness: `only armor` (`dev/RenderHarness.armorSteps`): um segundo jogador de ferro de frente, de lado e de costas,
+um conjunto misto, andando e agachado, no padrão, no Steve, no Alex e no bíped vanilla para comparar, e um modelo
+customizado (sem armadura). Com `-PthaumcraftArmor` (`dependencies.gradle`, só desenvolvimento) o Thaumcraft 4.2.3.5 e
+o Baubles vêm do CurseMaven desobfuscados, para as armaduras da fortaleza, dos mantos e de taumium; com um jar de dev
+do Cosmetic Armor Reworked em `run/client/mods` (compilado das fontes da branch `1.7.10` do mod), o slot cosmético.
+Testes: `ArmorFitTest` e `ArmorBoxesTest`. **A checar** em jogo: a versão do Cosmetic Armor Reworked do TEOF (os
+nomes lidos são os da `1.7.10-v7`), outros mods de armadura com modelo próprio, e a armadura com o Angelica.
+
 ## Fases
 
 1. **Prova:** ler um modelo CC0 embutido, assar em display lists, desenhar no lugar do jogador local; medir ms/quadro

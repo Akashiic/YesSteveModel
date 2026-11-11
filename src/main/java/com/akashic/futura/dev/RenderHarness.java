@@ -19,6 +19,7 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.MathHelper;
@@ -131,6 +132,7 @@ public final class RenderHarness {
         replacementSteps();
         fishingSteps();
         elytraSteps();
+        armorSteps();
         skinSteps();
         remoteSteps();
         diagnoseSteps();
@@ -1013,6 +1015,129 @@ public final class RenderHarness {
         }
     }
 
+    // ---- Worn armor (armor/ArmorFit, client/render/ArmorRenderer). Steps "armor-*" ("only armor" runs these). ----
+
+    /**
+     * The second player in armor on the default model, on Steve and with the vanilla biped to compare: iron from the
+     * front and the side, a mixed set (dyed leather with its overlay, enchanted gold), walking and sneaking; a custom
+     * model, which draws none; Thaumcraft's armor and Cosmetic Armor Reworked when they are in run/client/mods.
+     */
+    private void armorSteps() {
+        Item[] iron = { Items.iron_boots, Items.iron_leggings, Items.iron_chestplate, Items.iron_helmet };
+        armorStep("armor-default-iron-front", "default", false, 180, iron, false, false);
+        armorStep("armor-default-iron-side", "default", false, 90, iron, false, false);
+        armorStep("armor-default-iron-back", "default", false, 0, iron, false, false);
+        armorStep("armor-vanilla-iron-front", "default", true, 180, iron, false, false);
+        Item[] mixed = { Items.chainmail_boots, Items.golden_leggings, Items.leather_chestplate, Items.diamond_helmet };
+        armorStep("armor-default-mixed-front", "default", false, 150, mixed, false, false);
+        armorStep("armor-default-mixed-walk", "default", false, 90, mixed, true, false);
+        armorStep("armor-default-mixed-sneak", "default", false, 90, mixed, false, true);
+        armorStep("armor-steve-mixed-front", "misc/2_steve", false, 150, mixed, false, false);
+        armorStep("armor-alex-iron-walk", "misc/1_alex", false, 90, iron, true, false);
+        armorStep("armor-vanilla-mixed-front", "default", true, 150, mixed, false, false);
+        armorStep("armor-custom-model-none", "wine_fox/22_elf", false, 150, iron, false, false);
+        Item[] fortress = { item("Thaumcraft:ItemBootsTraveller"), item("Thaumcraft:ItemLeggingsFortress"),
+            item("Thaumcraft:ItemChestplateFortress"), item("Thaumcraft:ItemHelmetFortress") };
+        Item[] robes = { item("Thaumcraft:ItemBootsCultist"), item("Thaumcraft:ItemLeggingsRobe"),
+            item("Thaumcraft:ItemChestplateRobe"), item("Thaumcraft:ItemGoggles") };
+        Item[] thaumium = { item("Thaumcraft:ItemBootsThaumium"), item("Thaumcraft:ItemLeggingsThaumium"),
+            item("Thaumcraft:ItemChestplateThaumium"), item("Thaumcraft:ItemHelmetThaumium") };
+        armorStep("armor-tc-fortress-front", "default", false, 150, fortress, false, false);
+        armorStep("armor-tc-fortress-walk", "default", false, 90, fortress, true, false);
+        armorStep("armor-tc-vanilla-fortress-front", "default", true, 150, fortress, false, false);
+        armorStep("armor-tc-robes-front", "default", false, 150, robes, false, false);
+        armorStep("armor-tc-vanilla-robes-front", "default", true, 150, robes, false, false);
+        armorStep("armor-tc-thaumium-front", "default", false, 150, thaumium, false, false);
+        armorStep("armor-tc-steve-fortress-front", "misc/2_steve", false, 150, fortress, false, false);
+        step("armor-cos-front", () -> {
+            armorSet("default", false, 180, iron, false, false);
+            // a golden helmet shown over the iron one, the boots slot set to show the skin
+            cosmetic(3, new ItemStack(Items.golden_helmet), false);
+            cosmetic(0, null, true);
+        });
+        step("armor-cos-vanilla-front", () -> {
+            armorSet("default", true, 180, iron, false, false);
+            cosmetic(3, new ItemStack(Items.golden_helmet), false);
+            cosmetic(0, null, true);
+        });
+        step("armor-end", () -> {
+            armorWalk = false;
+            removeFake();
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            Minecraft.getMinecraft().gameSettings.hideGUI = false;
+        });
+    }
+
+    /** The second player walks in place during the step ({@link #armorTick}). */
+    private boolean armorWalk;
+
+    private void armorStep(String name, String model, boolean vanilla, float yaw, Item[] set, boolean walk,
+        boolean sneak) {
+        step(name, () -> armorSet(model, vanilla, yaw, set, walk, sneak));
+    }
+
+    private void armorSet(String model, boolean vanilla, float yaw, Item[] set, boolean walk, boolean sneak) {
+        replRemove();
+        removeFake();
+        PlayerModels.INSTANCE.setEnabled(!vanilla);
+        PlayerModels.INSTANCE.use(model);
+        fakeItem(vanilla, new ItemStack(Items.iron_sword), false, yaw);
+        StringBuilder worn = new StringBuilder("  wearing");
+        for (int slot = 0; slot < 4; slot++) {
+            ItemStack stack = set[slot] == null ? null : new ItemStack(set[slot]);
+            if (stack != null && set[slot] == Items.leather_chestplate) {
+                Items.leather_chestplate.func_82813_b(stack, 0x3060c0);
+            }
+            if (stack != null && set[slot] == Items.golden_leggings) {
+                stack.addEnchantment(net.minecraft.enchantment.Enchantment.protection, 1);
+            }
+            fake.inventory.armorInventory[slot] = stack;
+            worn.append(' ')
+                .append(set[slot] == null ? "-" : Item.itemRegistry.getNameForObject(set[slot]));
+        }
+        report(worn.toString());
+        fake.setSneaking(sneak);
+        armorWalk = walk;
+        settle = 30;
+    }
+
+    private static Item item(String name) {
+        return (Item) Item.itemRegistry.getObject(name);
+    }
+
+    /** Cosmetic Armor Reworked's slot of the second player, by reflection; reports when the mod is not there. */
+    private void cosmetic(int slot, ItemStack stack, boolean skin) {
+        try {
+            Object manager = Class.forName("lain.mods.cos.CosmeticArmorReworked")
+                .getField("invMan")
+                .get(null);
+            Object inv = manager.getClass()
+                .getMethod("getCosArmorInventoryClient", java.util.UUID.class)
+                .invoke(manager, fake.getUniqueID());
+            ((net.minecraft.inventory.IInventory) inv).setInventorySlotContents(slot, stack);
+            inv.getClass()
+                .getMethod("setSkinArmor", int.class, boolean.class)
+                .invoke(inv, slot, skin);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
+            report("  no Cosmetic Armor Reworked: " + e);
+        }
+    }
+
+    private void armorTick() {
+        if (fake == null || !armorWalk
+            || index < 0
+            || index >= names.size()
+            || !names.get(index)
+                .startsWith("armor-")) {
+            return;
+        }
+        // limb swing as a walk would advance it, the player kept in place
+        fake.prevLimbSwingAmount = fake.limbSwingAmount;
+        fake.limbSwingAmount = 0.9f;
+        fake.limbSwing += 0.6f;
+    }
+
     // Phase 5a: Bedrock controllers, functions and sounds. Steps "ctrl-*" ("only ctrl" runs just these).
     private void controllerSteps() {
         step("ctrl-default-sword", () -> {
@@ -1584,6 +1709,7 @@ public final class RenderHarness {
         replHold();
         fishTick();
         elytraTick();
+        armorTick();
         if (++ticks >= (settle > 0 ? settle : SETTLE_TICKS)) {
             if (names.get(index)
                 .contains("-copies-")) {

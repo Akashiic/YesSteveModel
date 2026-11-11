@@ -221,7 +221,8 @@ public final class PlayerModels {
             z,
             bodyYaw,
             pt,
-            snapshot.renderingInInventory);
+            snapshot.renderingInInventory,
+            com.akashic.futura.armor.ArmorFit.of(model.key));
         return true;
     }
 

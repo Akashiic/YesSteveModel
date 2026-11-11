@@ -112,10 +112,10 @@ final class PlayerInputsAdapter {
             && !SlashBladeStates.CLASSIFY.equals(s.mainhand.classify)) {
             s.mainhand = asSlashBlade(s.mainhand); // a mod says it is a blade: hold_mainhand:slashblade...
         }
-        s.armor.put(ItemConditions.Slot.FEET, item(p.getCurrentArmor(0)));
-        s.armor.put(ItemConditions.Slot.LEGS, item(p.getCurrentArmor(1)));
-        s.armor.put(ItemConditions.Slot.CHEST, item(p.getCurrentArmor(2)));
-        s.armor.put(ItemConditions.Slot.HEAD, item(p.getCurrentArmor(3)));
+        s.armor.put(ItemConditions.Slot.FEET, item(CosmeticArmor.shown(p, 0)));
+        s.armor.put(ItemConditions.Slot.LEGS, item(CosmeticArmor.shown(p, 1)));
+        s.armor.put(ItemConditions.Slot.CHEST, item(CosmeticArmor.shown(p, 2)));
+        s.armor.put(ItemConditions.Slot.HEAD, item(CosmeticArmor.shown(p, 3)));
         s.swinging = p.isSwingInProgress;
         s.swingTime = p.swingProgressInt;
         s.usingItem = p.isUsingItem();
