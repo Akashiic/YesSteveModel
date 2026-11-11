@@ -1367,6 +1367,70 @@ segurava o peixe num braço que não estava lá. Agora o Kunftig passa a mesma p
 **A checar** em jogo: os peixes das outras faixas e qualidades, andando com o peixe na mão (o braço fica na pose da
 faixa, sem o balanço de andar), e modelos com braços muito diferentes do padrão.
 
+## Armadura nos modelos (`armor/ArmorFit`, `client/render/ArmorRenderer`)
+
+O upstream não desenha armadura nos modelos (o `CosmeticArmorCompat` dele só serve às condições `armor`). Aqui a
+armadura vestida aparece em **todos os modelos**. Quem quer o modelo limpo esconde a armadura pelo Cosmetic Armor
+Reworked ("mostrar pele" no slot), e a elytra não some com ela.
+
+* As quatro passadas são as do `RenderPlayer.shouldRenderPass` e do `RendererLivingEntity.doRender`: a textura do
+  `RenderBiped.getArmorResource` (com o `getArmorTexture` do Forge), a cor do couro tingido e o `overlay`, o brilho
+  de encantamento, o modelo de 1 px (capacete, peitoral, botas) e o de 0,5 px (calças).
+* **Onde cada pedaço vai** (`ArmorFit`): cada caixa do bíped é cortada onde o modelo dobra e cada corte é esticado
+  sobre a caixa de um osso: a cabeça no `Head`, o tronco no `UpperBody` (em dois com um `UpBody` de tronco embaixo,
+  como o do Steve), os braços no braço e no antebraço, as pernas na coxa, na canela e no pé (com o dedo).
+  * O **modelo padrão** e o **Steve/Alex** têm as caixas ajustadas à mão.
+  * Os **outros modelos** têm as caixas tiradas dos ossos (`ArmorFit.fromGeometry`), pelos nomes que todo modelo YSM
+    usa: a caixa cobre os cubos do osso (sem os detalhes, cubos com menos de 15% do maior); um osso sem cubos pega os
+    dos ossos abaixo dele que não são de outra parte. O capacete cresce sobre o cabelo e as orelhas até 1 px para os
+    lados e 2,2 px para cima (cabelo comprido, cauda ou auréola não deixam o capacete enorme); o `UpBody` só vira a
+    metade de baixo do tronco quando começa onde o tronco acaba e não é muito mais largo (senão é saia, cauda ou
+    cinto); um antebraço não fica mais largo que 1,5 vez o braço. Os 24 modelos embutidos saem com a armadura inteira
+    (`ArmorFitTest.everyModelGetsAFitFromItsBones`).
+* **Armadura do bíped vanilla** (ferro, ouro, diamante, couro, malha, a de taumium e a do vazio do Thaumcraft e toda
+  armadura que só troca a textura): os cortes levam as linhas certas da textura (`ArmorBoxes`, mesma disposição do
+  `ModelBox`: cantos, espelho, ordem das faces), então a armadura dobra no cotovelo e no joelho com a animação.
+* **Armadura com modelo próprio** (`Item.getArmorModel`: a armadura da fortaleza, os mantos e os óculos da revelação
+  do Thaumcraft, as dos cultistas): o modelo roda o próprio `render` uma vez sem escrever nada (é lá que a fortaleza
+  escolhe a máscara, os óculos e as peças do conjunto) e depois cada parte do bíped, com as peças penduradas nela, é
+  desenhada inteira no osso do primeiro corte (o braço inteiro no braço, a perna inteira na coxa), sem a pose do
+  bíped. Essa armadura não dobra no joelho e no cotovelo; peças que um modelo desenha fora das partes do bíped não
+  aparecem.
+* **Cosmetic Armor Reworked** (1.7.10, `lain.mods.cos`; `client/CosmeticArmor`, por reflexão): o item cosmético de
+  um slot aparece no lugar do vestido, e um slot marcado "mostrar pele" não mostra nada; com a tecla do mod que
+  esconde a armadura cosmética, aparece a vestida. Vale também para as condições `armor` dos modelos e para o
+  capacete-bloco (abóbora, cabeça) na cabeça. O mod troca a armadura durante o desenho do jogador
+  (`RenderPlayerEvent.Pre` a `Post`); a leitura dá a mesma resposta ali e fora dele.
+* **A elytra não é armadura para esconder.** O EFR lê a elytra do peitoral (ou do slot do Baubles Expanded), e o
+  Cosmetic Armor esvazia o peitoral durante o desenho quando ele está em "mostrar pele" (ou põe o cosmético no
+  lugar): a elytra sumia junto, também no bíped vanilla. `CosmeticArmor.worn` guarda a armadura vestida antes da troca
+  (um ouvinte de `RenderPlayerEvent.Pre` em `HIGHEST`, antes do `HIGH` do mod) e o `ElytraBridge` usa a elytra vestida
+  no peitoral: as asas, o `ysm.has_elytra` e o planar continuam (na camada do EFR, a elytra volta ao peitoral só
+  durante a chamada). A elytra no slot do Baubles Expanded nunca é tocada pelo Cosmetic Armor.
+* **Asas próprias do modelo:** modelos que mostram asas suas quando o jogador tem elytra (por
+  `ysm.has_elytra`, como o osso `wings` da `wine_fox/21_saint`) seguem o upstream: o EFR desenha as asas vanilla só no
+  `ElytraLocator`, e um modelo sem o locator que pergunta `has_elytra` (`LoadedModel.ownWings`, lido dos arquivos de
+  animação, controladores e funções) não ganha as asas vanilla no `UpBody`, que antes caíam por cima das dele.
+* Não é desenhado: o vermelho do dano sobre a armadura, e o `RenderPlayerEvent.SetArmorModel` não é disparado (mods
+  que desenham a própria armadura por esse evento, como as asas do EFR, já têm a sua ponte ou ficam de fora).
+
+![Armadura no modelo padrão e no Steve: ferro, couro tingido com ouro encantado e malha, a fortaleza e os mantos com
+os óculos do Thaumcraft, e o capacete cosmético com as botas escondidas do Cosmetic Armor Reworked
+(harness `only armor`)](img/armadura-modelos.png)
+
+![Armadura em modelos customizados (elf, matured, momo, default boy), a elytra que fica com o peitoral em "mostrar
+pele" e as asas próprias da saint (harness `only armor`)](img/armadura-customizados.png)
+
+Harness: `only armor` (`dev/RenderHarness.armorSteps`): um segundo jogador de ferro de frente, de lado e de costas,
+um conjunto misto, andando e agachado, no padrão, no Steve, no Alex e no bíped vanilla para comparar; seis modelos
+customizados; a elytra com o peitoral cosmético e em "mostrar pele", a saint (asas próprias) e a elf (sem locator, as
+asas vanilla no `UpBody`). Com `-PthaumcraftArmor` (`dependencies.gradle`, só desenvolvimento) o Thaumcraft 4.2.3.5 e
+o Baubles vêm do CurseMaven desobfuscados, para as armaduras da fortaleza, dos mantos e de taumium; com um jar de dev
+do Cosmetic Armor Reworked em `run/client/mods` (compilado das fontes da branch `1.7.10` do mod), o slot cosmético.
+Testes: `ArmorFitTest`, `ArmorBoxesTest`, `OwnWingsTest`. **A checar** em jogo: a versão do Cosmetic Armor Reworked do
+TEOF (os nomes lidos são os da `1.7.10-v7`), modelos de servidor com ossos fora do padrão, outros mods de armadura
+com modelo próprio, a elytra no slot do Baubles Expanded com o Cosmetic Armor, e a armadura com o Angelica.
+
 ## Fases
 
 1. **Prova:** ler um modelo CC0 embutido, assar em display lists, desenhar no lugar do jogador local; medir ms/quadro

@@ -26,6 +26,8 @@ import org.lwjgl.opengl.GL11;
 
 import com.akashic.futura.anim.BoneAttributes;
 import com.akashic.futura.anim.BonePose;
+import com.akashic.futura.armor.ArmorFit;
+import com.akashic.futura.client.render.ArmorRenderer;
 import com.akashic.futura.client.render.GeometryRenderer;
 import com.akashic.futura.client.render.HeldItemRenderer;
 import com.akashic.futura.geo.BakedGeometry;
@@ -74,6 +76,7 @@ public final class ThirdPersonRenderer {
 
     private final Map<AbstractClientPlayer, Frame> frames = new WeakHashMap<>();
     private final HeldItemRenderer items = new HeldItemRenderer();
+    private final ArmorRenderer armorRenderer = new ArmorRenderer();
     private final FloatBuffer buffer = BufferUtils.createFloatBuffer(16);
     private final float[] locator = new float[Mat4.FLOATS];
     private Frame guiFrame;
@@ -134,15 +137,18 @@ public final class ThirdPersonRenderer {
     }
 
     /**
-     * @param x       render position of the feet, relative to the camera
-     * @param bodyYaw the animator's body yaw
-     * @param pose    the frame's animation, or {@code null} for the rest pose
-     * @param attrs   bone attributes, or {@code null}
-     * @param gui     drawn in a screen (the inventory): the locator frames of the world draw are kept
+     * @param x        render position of the feet, relative to the camera
+     * @param bodyYaw  the animator's body yaw
+     * @param pose     the frame's animation, or {@code null} for the rest pose
+     * @param attrs    bone attributes, or {@code null}
+     * @param gui      drawn in a screen (the inventory): the locator frames of the world draw are kept
+     * @param armor    where the worn armor goes on this model, or {@code null} (a model without armor)
+     * @param ownWings the model draws its own wings for the elytra ({@code ysm.has_elytra}): no wings on its
+     *                 {@code UpBody} when it has no {@code ElytraLocator}
      */
     void render(AbstractClientPlayer player, GeometryRenderer renderer, ResourceLocation texture, float widthScale,
         float heightScale, boolean layersFirst, BonePose pose, BoneAttributes attrs, double x, double y, double z,
-        float bodyYaw, float pt, boolean gui) {
+        float bodyYaw, float pt, boolean gui, ArmorFit armor, boolean ownWings) {
         Frame frame = frame(player, renderer, gui);
         frame.pose.compute(pose);
         placement(player, x, y, z, bodyYaw, widthScale, heightScale, frame.entity);
@@ -162,14 +168,14 @@ public final class ThirdPersonRenderer {
         GL11.glPushMatrix();
         multiply(frame.entity, 0);
         if (layersFirst) {
-            layers(player, frame.pose);
+            layers(player, frame.pose, armor, ownWings, pt);
         }
         Minecraft.getMinecraft()
             .getTextureManager()
             .bindTexture(texture);
         renderer.draw(frame.pose, attrs, 1, 1, 1, 1);
         if (!layersFirst) {
-            layers(player, frame.pose);
+            layers(player, frame.pose, armor, ownWings, pt);
         }
         if (player.hurtTime > 0 || player.deathTime > 0) {
             hurtTint(player, renderer, frame.pose, pt);
@@ -214,14 +220,18 @@ public final class ThirdPersonRenderer {
     /**
      * Et Futurum Requiem's wings at the {@code ElytraLocator} group, as upstream's {@code CustomPlayerElytraLayer}
      * (a hidden locator hides them); a model without the locator gets them on its {@code UpBody}, where the default
-     * model has it.
+     * model has it, unless it draws wings of its own for the elytra ({@code ysm.has_elytra}, as
+     * {@code wine_fox/21_saint}): upstream draws nothing there either.
      */
-    private void wings(AbstractClientPlayer player, PoseMatrices pose) {
+    private void wings(AbstractClientPlayer player, PoseMatrices pose, boolean ownWings) {
         if (pose.group(ELYTRA).length > 0) {
             for (int bone : pose.visibleGroup(ELYTRA)) {
                 pose.locator(bone, locator, 0);
                 wingsAt(player);
             }
+            return;
+        }
+        if (ownWings) {
             return;
         }
         int[] body = pose.visibleGroup(ELYTRA_FALLBACK);
@@ -247,8 +257,8 @@ public final class ThirdPersonRenderer {
         }
     }
 
-    /** Items at the locators, in the model frame. */
-    private void layers(AbstractClientPlayer player, PoseMatrices pose) {
+    /** The worn armor (models with an {@link ArmorFit}) and the items at the locators, in the model frame. */
+    private void layers(AbstractClientPlayer player, PoseMatrices pose, ArmorFit armor, boolean ownWings, float pt) {
         GL11.glPushAttrib(
             GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_CURRENT_BIT | GL11.GL_DEPTH_BUFFER_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
@@ -257,6 +267,9 @@ public final class ThirdPersonRenderer {
         GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
         GL11.glColor4f(1, 1, 1, 1);
         try {
+            if (armor != null) {
+                armorRenderer.render(player, pose, armor, pt);
+            }
             ItemStack held = player.getHeldItem();
             if (held != null) {
                 for (int bone : pose.visibleGroup(RIGHT_HAND)) {
@@ -272,9 +285,9 @@ public final class ThirdPersonRenderer {
                 }
             }
             if (ElytraBridge.elytra(player) != null) {
-                wings(player, pose);
+                wings(player, pose, ownWings);
             }
-            ItemStack helmet = player.inventory.armorItemInSlot(3);
+            ItemStack helmet = CosmeticArmor.shown(player, 3);
             if (HeldItemRenderer.drawsOnHead(helmet)) {
                 for (int bone : pose.visibleGroup(HEAD)) {
                     pose.locator(bone, locator, 0);

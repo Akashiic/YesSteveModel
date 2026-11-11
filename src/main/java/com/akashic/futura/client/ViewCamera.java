@@ -122,8 +122,10 @@ public final class ViewCamera {
             }
         }
         pose.compute(bones);
-        // As RenderPlayer.doRender places the local player: the feet yOffset under the camera entity's position.
-        float feet = -player.yOffset;
+        // Where PlayerModels draws the model, under the camera entity's position: the real feet (yOffset under it,
+        // raised by the ySize it is lowered by, PlayerFeet) and upstream's crouch (RenderOffset).
+        float feet = -player.yOffset + PlayerFeet.INSTANCE.ySize(player, pt)
+            + com.akashic.futura.anim.RenderOffset.of(snapshot);
         ThirdPersonRenderer
             .placement(player, 0, feet, 0, bodyYaw, model.loaded.widthScale, model.loaded.heightScale, placement);
         float point = EyeHeight.pointY(placement, pose, bone, scratch);

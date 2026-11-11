@@ -203,9 +203,13 @@ public final class PlayerModels {
             }
         }
         if (!snapshot.renderingInInventory) {
+            // the real feet, not the height 1.7.10 (and other mods) give the biped (PlayerFeet)
+            y = PlayerFeet.INSTANCE.y(player, pt);
             // in a replaced vehicle the player sits at its base (upstream RenderUtil.adjustPassengerPosition)
             y = EntityReplacements.INSTANCE.passengerY(player, y, pt);
         }
+        // upstream's crouch: 0.125 lower, the offset the models' crouch animations are made for (also in screens)
+        y += com.akashic.futura.anim.RenderOffset.of(snapshot);
         boolean own = ownSkin(player, model);
         thirdPerson.render(
             player,
@@ -221,7 +225,9 @@ public final class PlayerModels {
             z,
             bodyYaw,
             pt,
-            snapshot.renderingInInventory);
+            snapshot.renderingInInventory,
+            com.akashic.futura.armor.ArmorFit.of(model.key, model.loaded.main),
+            model.loaded.ownWings());
         return true;
     }
 

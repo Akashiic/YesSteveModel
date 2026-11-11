@@ -48,6 +48,8 @@ public final class LoadedModel {
     public final List<ReplacementTarget> vehicles;
     /** Replacement targets that could not be read (left out; the host draws those entities). */
     public final List<String> replacementErrors;
+    /** Whether the model's animations ask {@code has_elytra}: it draws wings of its own for the elytra. */
+    boolean ownWings;
 
     LoadedModel(ModelSource source, ModelManifest manifest, BakedGeometry main, BakedGeometry arm,
         Map<String, AnimationFile> animations, List<String> textures, float heightScale, float widthScale,
@@ -87,6 +89,11 @@ public final class LoadedModel {
         this.projectiles = Collections.unmodifiableList(new ArrayList<>(projectiles));
         this.vehicles = Collections.unmodifiableList(new ArrayList<>(vehicles));
         this.replacementErrors = Collections.unmodifiableList(new ArrayList<>(replacementErrors));
+    }
+
+    /** Whether the model draws wings of its own for the elytra (its animations ask {@code ysm.has_elytra}). */
+    public boolean ownWings() {
+        return ownWings;
     }
 
     /**

@@ -14,6 +14,14 @@ dependencies {
         runtimeOnlyNonPublishable("com.github.GTNewHorizons:Angelica:2.2.43:dev")
     }
 
+    // Development only (-PthaumcraftArmor): Thaumcraft 4.2.3.5 and Baubles from CurseMaven, deobfuscated, to check the
+    // armor drawn on the built-in models (the fortress armor, robes and goggles have their own armor models). Never a
+    // dependency of the release jar.
+    if (project.hasProperty("thaumcraftArmor")) {
+        runtimeOnlyNonPublishable(rfg.deobf("curse.maven:thaumcraft-223628:2227552"))
+        runtimeOnlyNonPublishable(rfg.deobf("curse.maven:baubles-227083:2224857"))
+    }
+
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
 }
