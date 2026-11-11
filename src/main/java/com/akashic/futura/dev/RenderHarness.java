@@ -133,6 +133,7 @@ public final class RenderHarness {
         fishingSteps();
         elytraSteps();
         armorSteps();
+        crouchSteps();
         skinSteps();
         remoteSteps();
         diagnoseSteps();
@@ -1013,6 +1014,49 @@ public final class RenderHarness {
             }
             report("  flying " + ElytraProbe.flying(fake) + " ticks " + ElytraProbe.ticks(fake) + " main " + main);
         }
+    }
+
+    // ---- Crouching (anim/RenderOffset, client/PlayerFeet). Steps "crouch-*" ("only crouch" runs these). ----
+
+    /**
+     * The local player crouching with a sword, from behind and from the side, with the default model and a custom one,
+     * and the vanilla biped: the report gives the bounding box's bottom (the real feet), vanilla's biped height
+     * ({@code posY - yOffset}, lowered by {@code ySize}) and the {@code ySize}.
+     */
+    private void crouchSteps() {
+        String[][] cases = { { "default", "1", "30" }, { "default", "1", "100" }, { "wine_fox/16_tactics", "1", "100" },
+            { "vanilla", "1", "100" } };
+        for (String[] c : cases) {
+            String name = "crouch-local-" + c[0].replace('/', '-') + "-" + c[2];
+            step(name, () -> {
+                replRemove();
+                removeFake();
+                boolean vanilla = c[0].equals("vanilla");
+                PlayerModels.INSTANCE.setEnabled(!vanilla);
+                PlayerModels.INSTANCE.use(vanilla ? "default" : c[0]);
+                keys(false, true, false, false);
+                holdItem(new ItemStack(Items.iron_sword));
+                view(Integer.parseInt(c[1]), Float.parseFloat(c[2]));
+                Minecraft.getMinecraft().gameSettings.hideGUI = true;
+                atShot = () -> {
+                    net.minecraft.client.entity.EntityPlayerSP p = Minecraft.getMinecraft().thePlayer;
+                    report(
+                        String.format(
+                            "  sneaking %s feet(box) %.4f vanilla biped %.4f ySize %.4f -> model %.4f",
+                            p.isSneaking(),
+                            p.boundingBox.minY,
+                            p.posY - p.yOffset,
+                            p.ySize,
+                            p.boundingBox.minY + (p.isSneaking() ? com.akashic.futura.anim.RenderOffset.CROUCH : 0)));
+                };
+            });
+        }
+        step("crouch-end", () -> {
+            keys(false, false, false, false);
+            PlayerModels.INSTANCE.setEnabled(true);
+            PlayerModels.INSTANCE.use("default");
+            Minecraft.getMinecraft().gameSettings.hideGUI = false;
+        });
     }
 
     // ---- Worn armor (armor/ArmorFit, client/render/ArmorRenderer). Steps "armor-*" ("only armor" runs these). ----
