@@ -91,8 +91,14 @@ public final class PlayerAnimator {
     // the rod (FishingStates): its phase, and the serial of the phase the fishing controller last started
     final FishingStates.Tracker fishing = new FishingStates.Tracker();
     int fishingSerial = -1;
-    /** Keeps the rod straight ahead of the torso while fishing (created on first use). */
+    /** Keeps the rod straight while fishing (created on first use). */
     private RodAim rodAim;
+    private int torsoBone = -1;
+    /** The torso that turns toward the look at the line, and how much of the look it takes. */
+    static final String TORSO = "UpBody";
+    static final float TORSO_SHARE = 0.5f;
+    /** The farthest the rod follows the look away from the body, in degrees. */
+    static final float MAX_ROD_LOOK_DEGREES = 75;
 
     // extra animation (upstream CustomPlayerEntity)
     boolean playingExtra;
@@ -177,15 +183,43 @@ public final class PlayerAnimator {
         straightenRod();
     }
 
-    /** While fishing, the rod straight ahead of the torso whatever the model's arms do ({@link RodAim}). */
+    /**
+     * While fishing, the rod straight whatever the model's arms do ({@link RodAim}): where the player looks while the
+     * line is out (at his bobber; 1.7.10's body lags the head by up to 75 degrees when standing, and the camera follows
+     * the head), straight ahead of the body otherwise. Standing at the line, the torso also turns part of the way
+     * toward the look, so the rod does not come out of the hands at an angle; the head keeps the whole look.
+     */
     private void straightenRod() {
-        if (model.firstPerson || inputs == null || !fishing.phase().straight || !FishingStates.holdsRod(inputs)) {
+        FishingStates.Phase phase = fishing.phase();
+        if (model.firstPerson || inputs == null || !phase.straight || !FishingStates.holdsRod(inputs)) {
             return;
         }
         if (rodAim == null) {
             rodAim = new RodAim(model.geometry);
+            torsoBone = model.geometry.indexOf(TORSO);
         }
-        rodAim.straighten(pose);
+        float look = phase.aimsAtLook()
+            ? AnimMath.clamp(netHeadYaw, -MAX_ROD_LOOK_DEGREES, MAX_ROD_LOOK_DEGREES) * AnimMath.DEG_TO_RAD
+            : 0;
+        if (phase.facesLine() && torsoBone >= 0 && look != 0) {
+            float turn = look * TORSO_SHARE;
+            pose.values[torsoBone * BonePose.FLOATS + 1] += turn;
+            for (int bone : model.headBones) {
+                if (descends(bone, torsoBone)) {
+                    pose.values[bone * BonePose.FLOATS + 1] -= turn; // the head keeps looking where it did
+                }
+            }
+        }
+        rodAim.straighten(pose, look);
+    }
+
+    private boolean descends(int bone, int ancestor) {
+        for (int b = model.geometry.bones[bone].parent; b >= 0; b = model.geometry.bones[b].parent) {
+            if (b == ancestor) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Upstream {@code dispatchPersistentEvents}: {@code player_init} once, then {@code player_update(true)}. */

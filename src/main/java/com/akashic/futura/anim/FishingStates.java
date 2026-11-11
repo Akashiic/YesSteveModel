@@ -107,6 +107,16 @@ public final class FishingStates {
                 || this == CELEBRATE;
         }
 
+        /** Whether the rod points where the player looks (at his bobber), not straight ahead of the body. */
+        boolean aimsAtLook() {
+            return straight && this != READY;
+        }
+
+        /** Whether the torso turns partly toward where the player looks (standing at the line). */
+        boolean facesLine() {
+            return this == WAIT || this == BITE || this == FIGHT || this == REEL;
+        }
+
         /** A loop that needs the line out (waiting, fighting, reeling); the others loop with it in. */
         boolean needsLine() {
             return this == WAIT || this == FIGHT || this == REEL;

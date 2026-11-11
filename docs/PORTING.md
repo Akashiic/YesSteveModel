@@ -1260,12 +1260,20 @@ lado):
   com os próprios clipes, então a vara saía 26° para a direita (conta feita com a cadeia inteira: a pose, a
   conversão do locator para a mão vanilla, o `display`). O Kunftig agora desenha a vara na mão de um modelo sem esse
   giro (`terceira_pessoa_modelo` no manifesto, ou o `terceira_pessoa` sem o Y).
-* `anim/RodAim`: depois da pose, gira o `RightHandLocator` em volta da vertical do tronco para a vara apontar reta
-  para a frente do tronco (ou reta para trás, quando ela inclina para trás), qualquer que seja o braço do modelo:
-  cada braço vira para dentro para as mãos se encontrarem, e cada modelo tem os seus braços. Só tira o desvio
-  lateral; a subida e o giro da vara continuam os do clipe. Vale nas fases de pesca e com a vara na mão sem linha
-  (`Phase.straight`); não vale no sacar e nas reações em que a vara cruza o corpo. Teste: `default`, `misc/1_alex`,
-  `wine_fox/13_matured` e `wine_fox/22_elf`, esperando, brigando, recolhendo e parados.
+* `anim/RodAim`: depois da pose, gira o `RightHandLocator` em volta da vertical do modelo para a vara apontar reta
+  (ou reta para trás, quando ela inclina para trás), qualquer que seja o braço do modelo: cada braço vira para dentro
+  para as mãos se encontrarem, e cada modelo tem os seus braços. Só tira o desvio lateral; a subida e o giro da vara
+  continuam os do clipe. Vale nas fases de pesca e com a vara na mão sem linha (`Phase.straight`); não vale no sacar e
+  nas reações em que a vara cruza o corpo. Teste: `default`, `misc/1_alex`, `wine_fox/13_matured` e
+  `wine_fox/22_elf`, esperando, brigando, recolhendo e parados.
+* **Para onde o jogador olha** (segundo teste: "não parece 100% reta"): no 1.7.10 o corpo parado fica até 75° atrás
+  da cabeça (`renderYawOffset`), então a vara reta em relação ao corpo saía torta em relação à câmera (medido no
+  harness: corpo −171,9°, cabeça −180°; depois de virar, corpo −132°). Nas fases de pesca com a vara para a frente
+  (`Phase.aimsAtLook`: lançar, esperar, mordida, briga, recolher...) a vara aponta para o olhar
+  (`PlayerAnimator.netHeadYaw`, até 75°); com a linha fora (`Phase.facesLine`) o `UpBody` gira metade disso, e a
+  cabeça desconta o giro, para o tronco acompanhar a vara. Medido no harness `modelfishing` do Kunftig: esperando,
+  vara −180,0° com a cabeça em −180°; virando a cabeça para 150°, a vara vai para 150,2° (o corpo continua em
+  −171,9°). Teste: `withTheLineOutTheRodPointsWhereThePlayerLooks`. **A verificar** no TEOF.
 * As animações próprias das varas 3D: o `sacar` gira a vara sozinho (o `fishing:draw` não gira mais a mão: dava
   giro duplo); o `lancar` foi feito para o bíped, que arma antes (a vara chicoteia para trás aos 0,37 s e para a frente
   aos 0,5 s): num modelo o Kunftig começa o `lancar` 0,3 s adiantado, e os chicotes caem na armada e no arremesso do

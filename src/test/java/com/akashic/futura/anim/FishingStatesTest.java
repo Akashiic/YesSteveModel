@@ -386,7 +386,7 @@ class FishingStatesTest {
         assertTrue(Math.signum(tense - calm) == Math.signum(heaving - calm), "both lean the same way");
     }
 
-    /** The rod's axis in the torso's frame after a few ticks of a phase (x right, y up, z back). */
+    /** The rod's axis in model space after a few ticks of a phase (x right, y up, z back). */
     private static float[] rodAfter(String model, String state, boolean line) throws IOException {
         PlayerAnimator a = animator(model);
         PlayerSnapshot s = new PlayerSnapshot();
@@ -399,7 +399,7 @@ class FishingStatesTest {
             s.external = states.of(PLAYER);
         }
         run(a, s, 0, 40);
-        return new RodAim(a.model().geometry).rodInBody(a.pose());
+        return new RodAim(a.model().geometry).rodInModel(a.pose());
     }
 
     @Test
@@ -416,6 +416,38 @@ class FishingStatesTest {
                 }
             }
         }
+    }
+
+    @Test
+    void withTheLineOutTheRodPointsWhereThePlayerLooks() throws IOException {
+        // 1.7.10's body lags the head by up to 75 degrees when standing: the player (and the camera) look at the
+        // bobber, the body faces elsewhere; the rod follows the look, the torso turns half of it
+        for (float look : new float[] { 30, -45 }) {
+            PlayerAnimator a = animator("default");
+            PlayerSnapshot s = new PlayerSnapshot();
+            s.mainhand = ROD;
+            s.fishing = true;
+            s.bodyYaw = 0;
+            s.headYaw = look;
+            run(a, s, 0, 40);
+            float[] rod = new RodAim(a.model().geometry).rodInModel(a.pose());
+            // the pose's look (netHeadYaw is the negated head turn) applied to straight ahead (0, 0, -1)
+            double want = Math.toRadians(-look);
+            double rodTurn = Math.atan2(-rod[0], -rod[2]);
+            assertEquals(Math.toDegrees(-Math.sin(want) == 0 ? 0 : want), Math.toDegrees(rodTurn), 2.0, "look " + look);
+            int torso = a.model().geometry.indexOf("UpBody");
+            assertTrue(
+                Math.abs(a.pose().values[torso * BonePose.FLOATS + 1]) > Math.toRadians(Math.abs(look) * 0.4),
+                "the torso turns toward the look");
+        }
+        // only holding the rod (no line): straight ahead of the body, whatever the look
+        PlayerAnimator a = animator("default");
+        PlayerSnapshot s = new PlayerSnapshot();
+        s.mainhand = ROD;
+        s.headYaw = 40;
+        run(a, s, 0, 40);
+        float[] rod = new RodAim(a.model().geometry).rodInModel(a.pose());
+        assertTrue(Math.abs(rod[0]) < 0.03f, "straight ahead of the body: x=" + rod[0]);
     }
 
     @Test
