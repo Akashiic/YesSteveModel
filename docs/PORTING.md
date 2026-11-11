@@ -1431,6 +1431,39 @@ Testes: `ArmorFitTest`, `ArmorBoxesTest`, `OwnWingsTest`. **A checar** em jogo: 
 TEOF (os nomes lidos são os da `1.7.10-v7`), modelos de servidor com ossos fora do padrão, outros mods de armadura
 com modelo próprio, a elytra no slot do Baubles Expanded com o Cosmetic Armor, e a armadura com o Angelica.
 
+## Agachar: o modelo nos pés de verdade e 0,125 mais baixo (`anim/RenderOffset`, `client/PlayerFeet`)
+
+No teste no TEOF o modelo flutuava agachado, mais com espada na mão. Medido pela linha do horizonte nas capturas:
+uns 0,2 bloco. A causa é a altura em que o modelo era posto. O futura3d usava a do bíped vanilla do 1.7.10, que tem
+três ajustes só dele:
+
+* o jogador local desce pelo `ySize` (o `EntityPlayerSP` põe 0,2 agachado, o `moveEntity` multiplica por 0,4: 0,08
+  bloco; e o mesmo `ySize` amortece a subida de degraus);
+* os outros jogadores descem 0,125 (`RenderPlayer.doRender`);
+* outros mods mexem nessa altura para o bíped (o Akashic Player Backport soma +0,0117 agachado, a diferença do pivô
+  da perna do bíped).
+
+O upstream (1.20), para o qual as animações dos modelos são feitas, desenha o modelo nos pés e 0,125 mais baixo na pose
+de agachar, para todo jogador (`PlayerRenderer.getRenderOffset`, aplicado pelo `EntityRenderDispatcher` antes do
+`RenderPlayerEvent.Pre` onde o YSM troca o desenho). Medido nas animações embutidas: o ponto mais baixo do modelo
+agachado fica 0,02 a 0,10 bloco acima da origem (as wine_fox), e com SlashBlade (`slashblade:sneaking`, que dobra as
+pernas sem baixar o `Root`) 0,10 a 0,20; com os 0,125 do upstream ficam no chão, com os 0,068 do jogador local no TEOF
+(0,08 − 0,0117) flutuavam.
+
+Agora o modelo fica:
+
+* **nos pés de verdade:** o fundo da caixa de colisão, `posY - yOffset + ySize`, interpolado como a posição de
+  desenho, com o `ySize` do fim do tick anterior para o `lastTickPosY` (`PlayerFeet`); nada do que o 1.7.10 ou outro
+  mod soma para o bíped;
+* **0,125 mais baixo na pose de agachar do 1.20** (`RenderOffset`): Shift, sem voar, planar, nadar, rastejar, dormir,
+  montar ou morrer; no ar também, como no 1.20; e também nas telas (inventário), como no upstream;
+* com a câmera de primeira pessoa pelo `ViewLocator` usando a mesma altura.
+
+Harness `only crouch`: o jogador local agachado de espada, de costas e de lado, no padrão, num customizado e no bíped
+vanilla; o relatório dá os pés (4,000), a altura do bíped vanilla (3,920, o `ySize` de 0,08) e a do modelo (3,875).
+Teste: `RenderOffsetTest`. O amortecimento de degrau do `ySize` também sai do modelo (no 1.20 não existe). **A checar**
+no TEOF: o agachar com a espada do modelo das capturas, e com o Akashic Player Backport.
+
 ## Fases
 
 1. **Prova:** ler um modelo CC0 embutido, assar em display lists, desenhar no lugar do jogador local; medir ms/quadro
