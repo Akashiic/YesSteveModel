@@ -30,6 +30,7 @@ final class ElytraBridge {
     private static boolean resolved;
     private static Class<?> apiPlayer;
     private static Method getElytra;
+    private static Class<?> elytraItem;
     private static Method renderLayer;
     private static boolean failed;
 
@@ -51,8 +52,8 @@ final class ElytraBridge {
             return; // not installed
         }
         try {
-            getElytra = Class.forName(ITEM, false, loader)
-                .getMethod("getElytra", EntityLivingBase.class);
+            elytraItem = Class.forName(ITEM, false, loader);
+            getElytra = elytraItem.getMethod("getElytra", EntityLivingBase.class);
         } catch (ReflectiveOperationException | LinkageError e) {
             Futura3D.LOG.warn("Et Futurum Requiem's elytra item is unreachable; no wings on the models", e);
         }
@@ -154,7 +155,10 @@ final class ElytraBridge {
         }
         try {
             Object v = getElytra.invoke(null, player);
-            return v instanceof ItemStack ? (ItemStack) v : null;
+            if (v instanceof ItemStack) {
+                return (ItemStack) v;
+            }
+            return hiddenElytra(player);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             failed = true;
             Futura3D.LOG.warn("Et Futurum Requiem's elytra item is unreadable; no wings on the models", e);
@@ -172,7 +176,14 @@ final class ElytraBridge {
         if (renderLayer == null || failed) {
             return false;
         }
+        ItemStack[] armor = player.inventory.armorInventory;
+        ItemStack chest = armor[2];
+        ItemStack hidden = hiddenElytra(player);
         try {
+            // EFR's layer reads the chest slot again: the elytra Cosmetic Armor Reworked hid goes back for the call
+            if (hidden != null) {
+                armor[2] = hidden;
+            }
             renderLayer.invoke(
                 null,
                 player,
@@ -186,6 +197,23 @@ final class ElytraBridge {
             failed = true;
             Futura3D.LOG.warn("Et Futurum Requiem's elytra layer failed; no wings on the models", e);
             return false;
+        } finally {
+            armor[2] = chest;
         }
+    }
+
+    /**
+     * The elytra worn in the chest slot while Cosmetic Armor Reworked shows something else there (or nothing, "show
+     * skin"), or null: the wings are not armor to hide, so they stay ({@link CosmeticArmor#worn}).
+     */
+    private static ItemStack hiddenElytra(EntityPlayer player) {
+        if (elytraItem == null) {
+            return null;
+        }
+        ItemStack worn = CosmeticArmor.worn(player, 2);
+        if (worn == null || worn == player.inventory.armorInventory[2] || !elytraItem.isInstance(worn.getItem())) {
+            return null;
+        }
+        return worn;
     }
 }

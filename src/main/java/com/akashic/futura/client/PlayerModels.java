@@ -222,7 +222,8 @@ public final class PlayerModels {
             bodyYaw,
             pt,
             snapshot.renderingInInventory,
-            com.akashic.futura.armor.ArmorFit.of(model.key));
+            com.akashic.futura.armor.ArmorFit.of(model.key, model.loaded.main),
+            model.loaded.ownWings());
         return true;
     }
 

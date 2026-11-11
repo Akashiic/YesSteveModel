@@ -150,7 +150,7 @@ public final class ModelLoader {
                 files,
                 false);
         }
-        return new LoadedModel(
+        LoadedModel loaded = new LoadedModel(
             source,
             manifest,
             main,
@@ -165,6 +165,54 @@ public final class ModelLoader {
             projectiles,
             vehicles,
             replacementErrors);
+        List<String> scripts = new ArrayList<>(manifest.files.player.animation.values());
+        if (manifest.files.player.animationControllers != null) {
+            scripts.addAll(manifest.files.player.animationControllers);
+        }
+        loaded.ownWings = mentions(source, scripts, "has_elytra");
+        for (String function : functions.values()) {
+            loaded.ownWings |= function.contains("has_elytra");
+        }
+        return loaded;
+    }
+
+    /** Whether any of the files has the text (a file that cannot be read has not). */
+    static boolean mentions(ModelSource source, List<String> paths, String text) {
+        byte[] wanted = text.getBytes(StandardCharsets.UTF_8);
+        for (String path : paths) {
+            if (blank(path)) {
+                continue;
+            }
+            try (InputStream in = source.open(path)) {
+                if (in == null) {
+                    continue;
+                }
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, n);
+                }
+                if (indexOf(out.toByteArray(), wanted) >= 0) {
+                    return true;
+                }
+            } catch (IOException e) {
+                // not this one
+            }
+        }
+        return false;
+    }
+
+    private static int indexOf(byte[] data, byte[] wanted) {
+        outer: for (int i = 0; i + wanted.length <= data.length; i++) {
+            for (int k = 0; k < wanted.length; k++) {
+                if (data[i + k] != wanted[k]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
     }
 
     /**

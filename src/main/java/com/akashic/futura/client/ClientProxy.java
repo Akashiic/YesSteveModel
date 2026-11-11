@@ -27,6 +27,7 @@ public class ClientProxy extends CommonProxy {
         EmoteKeys.register();
         ClientNetwork.register();
         BackhandOffhand.install();
+        CosmeticArmor.install();
         ModelSounds.register();
         cpw.mods.fml.common.FMLCommonHandler.instance()
             .bus()

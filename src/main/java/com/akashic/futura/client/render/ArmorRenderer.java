@@ -2,9 +2,9 @@ package com.akashic.futura.client.render;
 
 import java.nio.FloatBuffer;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.ModelBiped;
@@ -31,7 +31,8 @@ import com.akashic.futura.geo.Mat4;
 import com.akashic.futura.geo.PoseMatrices;
 
 /**
- * Worn armor on a built-in model with an {@link ArmorFit} (the default model, Steve and Alex), drawn as
+ * Worn armor on a player's model, where its {@link ArmorFit} puts it (every model: the default model, Steve and
+ * Alex tuned by hand, the others from their bones), drawn as
  * {@code RenderPlayer.shouldRenderPass} and {@code RendererLivingEntity.doRender} draw the four armor passes: the
  * texture of {@code RenderBiped.getArmorResource} (Forge's {@code getArmorTexture} included), the dye colour and its
  * overlay, the enchantment glint.
@@ -57,7 +58,7 @@ public final class ArmorRenderer {
     private final float[] matrix = new float[Mat4.FLOATS];
     private final float[] pivot = new float[3];
     /** Per fit, per inflation (0.5 or 1 pixel), the quads of each cut, in the fit's order. */
-    private final Map<ArmorFit, float[][][]> quads = new IdentityHashMap<>();
+    private final Map<ArmorFit, float[][][]> quads = new WeakHashMap<>();
     /** Items whose armor failed to draw: said once, then drawn no more. */
     private final Set<Item> failed = new HashSet<>();
 

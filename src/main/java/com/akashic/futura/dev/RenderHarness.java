@@ -1035,7 +1035,27 @@ public final class RenderHarness {
         armorStep("armor-steve-mixed-front", "misc/2_steve", false, 150, mixed, false, false);
         armorStep("armor-alex-iron-walk", "misc/1_alex", false, 90, iron, true, false);
         armorStep("armor-vanilla-mixed-front", "default", true, 150, mixed, false, false);
-        armorStep("armor-custom-model-none", "wine_fox/22_elf", false, 150, iron, false, false);
+        // the other models: the fit found from their bones
+        armorStep("armor-custom-elf-iron", "wine_fox/22_elf", false, 150, iron, false, false);
+        armorStep("armor-custom-matured-mixed", "wine_fox/13_matured", false, 150, mixed, false, false);
+        armorStep("armor-custom-tactics-iron-walk", "wine_fox/16_tactics", false, 90, iron, true, false);
+        armorStep("armor-custom-astronaut-mixed", "wine_fox/03_astronaut", false, 150, mixed, false, false);
+        armorStep("armor-custom-momo-iron", "wine_fox/14_momo", false, 150, iron, false, false);
+        armorStep("armor-custom-boy-mixed", "misc/3_default_boy", false, 150, mixed, false, false);
+        // the elytra stays when Cosmetic Armor Reworked hides the chest slot ("show skin"): seen from behind
+        Item elytra = item("etfuturum:elytra");
+        Item[] winged = { Items.iron_boots, Items.iron_leggings, elytra, Items.iron_helmet };
+        step("armor-elytra-cos-skin-back", () -> {
+            armorSet("default", false, 0, winged, false, false);
+            cosmetic(2, null, true);
+        });
+        step("armor-elytra-cos-chestplate-back", () -> {
+            armorSet("default", false, 0, winged, false, false);
+            cosmetic(2, new ItemStack(Items.golden_chestplate), false);
+        });
+        // a model with wings of its own for the elytra (ysm.has_elytra) and no ElytraLocator: only its wings
+        armorStep("armor-elytra-saint-own-back", "wine_fox/21_saint", false, 0, winged, false, false);
+        armorStep("armor-elytra-elf-fallback-back", "wine_fox/22_elf", false, 0, winged, false, false);
         Item[] fortress = { item("Thaumcraft:ItemBootsTraveller"), item("Thaumcraft:ItemLeggingsFortress"),
             item("Thaumcraft:ItemChestplateFortress"), item("Thaumcraft:ItemHelmetFortress") };
         Item[] robes = { item("Thaumcraft:ItemBootsCultist"), item("Thaumcraft:ItemLeggingsRobe"),

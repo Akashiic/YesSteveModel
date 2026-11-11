@@ -22,13 +22,76 @@ class ArmorFitTest {
     private static final String[] FITTED = { "default", "misc/2_steve", "misc/1_alex" };
 
     @Test
-    void onlyTheDefaultAndSteveAlexWearArmor() {
+    void theDefaultAndSteveAlexAreTunedByHand() {
         for (String m : FITTED) {
             assertNotNull(ArmorFit.of("builtin:" + m), m);
         }
         assertNull(ArmorFit.of("builtin:wine_fox/14_momo"));
-        assertNull(ArmorFit.of("builtin:misc/3_default_boy"));
         assertNull(ArmorFit.of(null));
+    }
+
+    /** Every built-in model wears the whole armor: the other models get their fit from their bones. */
+    @Test
+    void everyModelGetsAFitFromItsBones() throws IOException {
+        java.util.List<String> folders = new java.util.ArrayList<>();
+        for (String line : new String(
+            java.nio.file.Files
+                .readAllBytes(java.nio.file.Paths.get("src/main/resources/assets/futura3d/builtin/index.txt")),
+            java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+            line = line.trim();
+            if (!line.isEmpty() && !line.startsWith("#")) {
+                folders.add(line);
+            }
+        }
+        assertTrue(folders.size() > 20);
+        for (String m : folders) {
+            LoadedModel model = ModelLoader.load(new ClasspathModelSource("/assets/futura3d/builtin/" + m + "/"));
+            ArmorFit fit = ArmorFit.of("builtin:" + m, model.main);
+            assertNotNull(fit, m);
+            for (ArmorFit.Part part : ArmorFit.Part.values()) {
+                ArmorFit.Piece whole = fit.whole(part);
+                assertNotNull(whole, m + " " + part);
+                for (int i = 3; i < 6; i++) {
+                    assertTrue(whole.box[i] > 0.4f && whole.box[i] < 30, m + " " + part + " " + whole.box[i]);
+                }
+            }
+            // the same fit again for the same geometry
+            assertTrue(fit == ArmorFit.of("builtin:" + m, model.main), m);
+        }
+    }
+
+    /** On Steve, the fit found from the bones is the hand-tuned one (the bones are the biped's boxes). */
+    @Test
+    void steveFromItsBonesIsTheTunedFit() throws IOException {
+        LoadedModel model = ModelLoader.load(new ClasspathModelSource("/assets/futura3d/builtin/misc/2_steve/"));
+        ArmorFit found = ArmorFit.fromGeometry(model.main);
+        ArmorFit tuned = ArmorFit.of("builtin:misc/2_steve");
+        // the head: the tuned box, grown over the hat layer (half a pixel), never down
+        ArmorFit.Piece a = found.whole(ArmorFit.Part.HEAD);
+        ArmorFit.Piece b = tuned.whole(ArmorFit.Part.HEAD);
+        assertEquals(b.bone, a.bone);
+        assertEquals(b.box[1], a.box[1], 0.01f);
+        for (int i = 0; i < 3; i++) {
+            assertTrue(a.box[i] <= b.box[i] + 0.01f && a.box[i] + a.box[i + 3] >= b.box[i] + b.box[i + 3] - 0.01f);
+            assertTrue(a.box[i + 3] <= b.box[i + 3] + 2 * ArmorFit.HAIR_TOP, "head " + i);
+        }
+        // the arms cut at the elbow, the body in two (UpBody under UpperBody), on the same bones
+        for (ArmorFit.Part part : new ArmorFit.Part[] { ArmorFit.Part.BODY, ArmorFit.Part.RIGHT_ARM,
+            ArmorFit.Part.LEFT_ARM }) {
+            java.util.List<String> foundBones = new java.util.ArrayList<>();
+            java.util.List<String> tunedBones = new java.util.ArrayList<>();
+            for (ArmorFit.Piece p : found.pieces) {
+                if (p.part == part) {
+                    foundBones.add(p.bone);
+                }
+            }
+            for (ArmorFit.Piece p : tuned.pieces) {
+                if (p.part == part) {
+                    tunedBones.add(p.bone);
+                }
+            }
+            assertEquals(tunedBones, foundBones, part.name());
+        }
     }
 
     @Test
