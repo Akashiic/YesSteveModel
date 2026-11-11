@@ -1252,6 +1252,43 @@ Como as fases andam:
 * **API 4** (`api/FuturaModels`): `FISHING_STATE`, `FISHING_TENSION` e `fishingPhase(jogador)` (`none`, `ready`,
   `draw`, `cast`, `wait`, `bite`, `fight`, `reel`, `catch`, `escape`, `retrieve`).
 
+**A vara reta e as varas 3D** (depois do primeiro teste no TEOF, com as duas mãos juntas a vara saía inclinada para o
+lado):
+
+* O `display` de terceira pessoa das 16 varas 3D do AkashicFishing tem `[80, 35, 0]`: os 35° em Y existem para o braço
+  do bíped, que os clipes `braco` do pack giram −55° em Y com a linha fora; no bíped a vara sai reta. O modelo segura
+  com os próprios clipes, então a vara saía 26° para a direita (conta feita com a cadeia inteira: a pose, a
+  conversão do locator para a mão vanilla, o `display`). O Kunftig agora desenha a vara na mão de um modelo sem esse
+  giro (`terceira_pessoa_modelo` no manifesto, ou o `terceira_pessoa` sem o Y).
+* `anim/RodAim`: depois da pose, gira o `RightHandLocator` em volta da vertical do modelo para a vara apontar reta
+  (ou reta para trás, quando ela inclina para trás), qualquer que seja o braço do modelo: cada braço vira para dentro
+  para as mãos se encontrarem, e cada modelo tem os seus braços. Só tira o desvio lateral; a subida e o giro da vara
+  continuam os do clipe. Vale nas fases de pesca e com a vara na mão sem linha (`Phase.straight`); não vale no sacar e
+  nas reações em que a vara cruza o corpo. Teste: `default`, `misc/1_alex`, `wine_fox/13_matured` e
+  `wine_fox/22_elf`, esperando, brigando, recolhendo e parados.
+* **Para onde o jogador olha** (segundo teste: "não parece 100% reta"): no 1.7.10 o corpo parado fica até 75° atrás
+  da cabeça (`renderYawOffset`), então a vara reta em relação ao corpo saía torta em relação à câmera (medido no
+  harness: corpo −171,9°, cabeça −180°; depois de virar, corpo −132°). Nas fases de pesca com a vara para a frente
+  (`Phase.aimsAtLook`: lançar, esperar, mordida, briga, recolher...) a vara aponta para o olhar
+  (`PlayerAnimator.netHeadYaw`, até 75°); com a linha fora (`Phase.facesLine`) o `UpBody` gira metade disso, e a
+  cabeça desconta o giro, para o tronco acompanhar a vara. Medido no harness `modelfishing` do Kunftig: esperando,
+  vara −180,0° com a cabeça em −180°; virando a cabeça para 150°, a vara vai para 150,2° (o corpo continua em
+  −171,9°). Teste: `withTheLineOutTheRodPointsWhereThePlayerLooks`. **A verificar** no TEOF.
+* As animações próprias das varas 3D: o `sacar` gira a vara sozinho (o `fishing:draw` não gira mais a mão: dava
+  giro duplo); o `lancar` foi feito para o bíped, que arma antes (a vara chicoteia para trás aos 0,37 s e para a frente
+  aos 0,5 s): num modelo o Kunftig começa o `lancar` 0,3 s adiantado, e os chicotes caem na armada e no arremesso do
+  modelo (que arremessa com a boia); a `briga` já inclina a vara 11 a 18° para trás, então a briga do modelo deixa a
+  vara um pouco antes da vertical.
+* **Reações** das varas (as skins Sanrio do AkashicFishing, `docs/INTERACOES.md` de lá), que o servidor manda como os
+  estados da briga: `carinho` → `fishing:pet` (a vara junto ao peito, a mão livre faz carinho três vezes), `inspecionar`
+  → `inspect` (a vara de pé diante dos olhos enquanto gira sozinha), `ociosa` → `lazy` (em laço: a vara no ombro, um
+  cochilo e um bocejo), `encontro` → `greet` (aceno com a mão livre), `rivalidade` → `rival` (inclinado, a vara
+  apontada como espada, a mão na cintura), `comemoracao` → `celebrate` (dois pulinhos de braços para cima). Cada clipe
+  dura o mesmo que a animação da vara; `parada` encerra uma reação; Shift com clique esquerdo não é mais lançamento (só
+  a boia aparecendo lança).
+
+![Varas 3D do AkashicFishing no modelo, harness modelfishing do Kunftig](img/pesca-varas-3d.png)
+
 Os clipes saem de `tools/fishing_animations.py` (`--check` confere): as poses-chave ficam em listas legíveis, com a
 convenção dos ossos e uma conta medida no harness para o ângulo da vara (cerca de `0,45 × −(braço + antebraço) −
 RightHandLocator + 55` graus acima do horizonte). Abrem no Blockbench como qualquer animação Bedrock.
@@ -1271,6 +1308,8 @@ pose, todos os modelos caindo no conjunto padrão) e `BuiltinMolangTest`, que co
 * Nos modelos com esqueleto diferente do padrão (os clipes giram `RightHandLocator`; num modelo que segura a vara em
   outro ângulo, a ponta pode sair mais alta ou mais baixa).
 * Pescando de barco (os clipes de uma vez mexem nas pernas por um instante) e andando durante a briga.
+* As reações com o servidor de verdade (o carinho, a ociosa que acaba quando o jogador se mexe, o encontro entre dois
+  jogadores) e a vara reta em modelos com braços muito diferentes do padrão.
 * A câmera em primeira pessoa segue a altura da cabeça do modelo (`view_locator_camera`, etapa 6): o pulinho da captura
   e a inclinação da briga a movem uns 0,1 bloco, suavizado. Conferir se incomoda.
 

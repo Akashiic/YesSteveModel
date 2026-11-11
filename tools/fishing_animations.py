@@ -66,7 +66,8 @@ WAIT_POSE = {
     "RightHandLocator": [42.5, 0, 0],
 }
 
-# The fight's pose at no tension: leaning back, the rod up, both fists high.
+# The fight's pose at no tension: leaning back, the rod up, both fists high. The locator leaves the rod a little short
+# of upright: AkashicFishing's 3D rods lean back another 11 to 18 degrees in their own briga.
 FIGHT_POSE = {
     "UpBody": [-8, 0, 0],
     "Head": [-4, 0, 0],
@@ -74,7 +75,7 @@ FIGHT_POSE = {
     "RightForeArm": [-30, 0, 0],
     "LeftArm": [-84, 22, 12],
     "LeftForeArm": [-30, 0, 0],
-    "RightHandLocator": [30, 0, 0],
+    "RightHandLocator": [48, 0, 0],
 }
 
 
@@ -350,22 +351,168 @@ def retrieve():
 
 
 def draw():
-    """Once, 0.8 s. The rod comes out to the side and spins once around the fist like a baton (the head watches it),
-    then settles."""
+    """Once, 0.9 s, as long as the 3D rods' own sacar. The rod comes up from the side into view and is shown, the head
+    following it, then settles. It does not spin the rod: AkashicFishing's 3D rods twirl in their own sacar, and a
+    spin of the hand on top of it was a double one."""
     return {
-        "animation_length": 0.8,
+        "animation_length": 0.9,
         "bones": {
-            "UpBody": {"rotation": track((0, ZERO), (0.3, [0, -8, 0]), (0.8, ZERO))},
-            "Head": {"rotation": track((0, ZERO), (0.25, [10, -15, 0]), (0.5, [6, -8, 0]), (0.8, ZERO))},
+            "UpBody": {"rotation": track((0, ZERO), (0.3, [0, -8, 0]), (0.6, [0, -4, 0]), (0.9, ZERO))},
+            "Head": {"rotation": track((0, ZERO), (0.2, [8, -14, 0]), (0.5, [4, -8, 0]), (0.9, ZERO))},
             "RightArm": {"rotation": track(
-                (0, ZERO), (0.1, [-40, 0, -25]), (0.45, [-45, 0, -22]), (0.6, [-55, -10, -12]), (0.8, ZERO))},
+                (0, ZERO), (0.15, [-35, 0, -20]), (0.45, [-55, -8, -12]), (0.7, [-40, -4, -8]), (0.9, ZERO))},
             "RightForeArm": {"rotation": track(
-                (0, ZERO), (0.1, [-30, 0, 0]), (0.45, [-30, 0, 0]), (0.6, [-20, 0, 0]), (0.8, ZERO))},
-            # one full turn, linear; at the end of the turn -360 jumps to 0 (the same orientation), so blending out
-            # never spins it back
-            "RightHandLocator": {"rotation": track(
-                (0, ZERO), (0.1, ZERO), (0.27, [-180, 0, 0]),
-                (0.45, {"pre": [-360, 0, 0], "post": [0, 0, 0]}), (0.6, [10, 0, 0]), (0.8, ZERO), lerp="linear")},
+                (0, ZERO), (0.15, [-35, 0, 0]), (0.45, [-30, 0, 0]), (0.7, [-18, 0, 0]), (0.9, ZERO))},
+            "RightHandLocator": {"rotation": track((0, ZERO), (0.45, [25, 0, 0]), (0.9, ZERO))},
+        },
+    }
+
+
+def pet():
+    """Once, 2.0 s (the rods' carinho: Shift and a left click). The rod is brought up close before the chest and the
+    free hand strokes it three times, the head tilted toward it."""
+    hold_arm = [-40, -20, -10]
+    hold_fore = [-75, 0, 0]
+    stroke_up = [-112, 24, 16]
+    stroke_down = [-96, 24, 16]
+    return {
+        "animation_length": 2.0,
+        "bones": {
+            "UpBody": {"rotation": track((0, ZERO), (0.25, [4, -6, 0]), (1.0, [4, -3, 0]), (1.75, [4, -6, 0]),
+                                         (2.0, ZERO))},
+            "Head": {"rotation": track((0, ZERO), (0.25, [14, -10, 8]), (1.0, [12, -8, 10]), (1.75, [14, -10, 8]),
+                                       (2.0, ZERO))},
+            "RightArm": {"rotation": track((0, ZERO), (0.25, hold_arm), (1.75, hold_arm), (2.0, ZERO))},
+            "RightForeArm": {"rotation": track((0, ZERO), (0.25, hold_fore), (1.75, hold_fore), (2.0, ZERO))},
+            "RightHandLocator": {"rotation": track((0, ZERO), (0.25, [17, 0, 0]), (1.75, [17, 0, 0]), (2.0, ZERO))},
+            "LeftArm": {"rotation": track(
+                (0, ZERO), (0.3, stroke_down), (0.55, stroke_up), (0.8, stroke_down), (1.05, stroke_up),
+                (1.3, stroke_down), (1.55, stroke_up), (1.75, stroke_down), (2.0, ZERO))},
+            "LeftForeArm": {"rotation": track(
+                (0, ZERO), (0.3, [-35, 0, 0]), (0.55, [-50, 0, 0]), (0.8, [-35, 0, 0]), (1.05, [-50, 0, 0]),
+                (1.3, [-35, 0, 0]), (1.55, [-50, 0, 0]), (1.75, [-35, 0, 0]), (2.0, ZERO))},
+        },
+    }
+
+
+def inspect():
+    """Once, 2.4 s (the rods' inspecionar: two of the gesture). The rod is raised upright before the face while it
+    turns in the hand on its own; the eyes travel from the tip down to the grip, the free hand under it."""
+    arm = [-70, -15, -10]
+    fore = [-60, 0, 0]
+    return {
+        "animation_length": 2.4,
+        "bones": {
+            "UpBody": {"rotation": track((0, ZERO), (0.3, [-4, -8, 0]), (2.0, [-3, -6, 0]), (2.4, ZERO))},
+            "Head": {"rotation": track((0, ZERO), (0.3, [-12, -10, 0]), (0.6, [-20, -10, 0]), (1.6, [12, -6, 0]),
+                                       (2.0, [6, -6, 0]), (2.4, ZERO))},
+            "RightArm": {"rotation": track((0, ZERO), (0.3, arm), (2.0, arm), (2.4, ZERO))},
+            "RightForeArm": {"rotation": track((0, ZERO), (0.3, fore), (2.0, fore), (2.4, ZERO))},
+            "RightHandLocator": {"rotation": track((0, ZERO), (0.3, [18, 0, 0]), (2.0, [18, 0, 0]), (2.4, ZERO))},
+            "LeftArm": {"rotation": track((0, ZERO), (0.35, [-60, 30, 15]), (2.0, [-60, 30, 15]), (2.4, ZERO))},
+            "LeftForeArm": {"rotation": track((0, ZERO), (0.35, [-45, 0, 0]), (2.0, [-45, 0, 0]), (2.4, ZERO))},
+        },
+    }
+
+
+def lazy():
+    """Loop, 6 s (the rods' ociosa: 30 s standing still). The rod rests on the right shoulder; the head nods off once,
+    then a yawn with the free hand before the mouth. The torso and the legs stay the main controller's."""
+    rest = [0, 0, 0]
+    return {
+        "loop": True,
+        "animation_length": 6,
+        "bones": {
+            "RightArm": {"rotation": [-25, 10, -10]},
+            "RightForeArm": {"rotation": [-110, 0, 0]},
+            "RightHandLocator": {"rotation": [-25, 0, 0]},
+            "LeftArm": {"rotation": track(
+                (0, rest), (3.2, rest), (3.5, [-130, -35, -20]), (4.3, [-130, -35, -20]), (4.7, rest), (6.0, rest))},
+            "LeftForeArm": {"rotation": track(
+                (0, rest), (3.2, rest), (3.5, [-70, 0, 0]), (4.3, [-70, 0, 0]), (4.7, rest), (6.0, rest))},
+            "Head": {"rotation": track(
+                (0, rest), (1.5, [4, 0, 0]), (2.0, [12, 0, 2]), (2.4, [2, 0, 0]), (3.4, [-8, 0, 0]),
+                (3.6, [-22, 0, 4]), (4.3, [-20, 0, 4]), (4.8, [3, 6, 0]), (6.0, rest))},
+        },
+    }
+
+
+def greet():
+    """Once, 1.6 s (the rods' encontro: another of them nearby). A wave with the free hand, the rod raised a little in
+    salute, the head tilted kindly."""
+    up = [-165, -10, -10]
+    return {
+        "animation_length": 1.6,
+        "bones": {
+            "UpBody": {"rotation": track((0, ZERO), (0.2, [0, 8, 0]), (1.2, [0, 8, 0]), (1.6, ZERO))},
+            "Head": {"rotation": track((0, ZERO), (0.2, [-4, 6, -8]), (1.2, [-4, 6, -8]), (1.6, ZERO))},
+            "LeftArm": {"rotation": track(
+                (0, ZERO), (0.2, up), (0.4, [-165, -10, 15]), (0.6, [-165, -10, -15]), (0.8, [-165, -10, 15]),
+                (1.0, [-165, -10, -10]), (1.6, ZERO))},
+            "LeftForeArm": {"rotation": track((0, ZERO), (0.2, [-20, 0, 0]), (1.0, [-20, 0, 0]), (1.6, ZERO))},
+            "RightArm": {"rotation": track((0, ZERO), (0.25, [-60, -10, -10]), (1.2, [-60, -10, -10]), (1.6, ZERO))},
+            "RightForeArm": {"rotation": track((0, ZERO), (0.25, [-40, 0, 0]), (1.2, [-40, 0, 0]), (1.6, ZERO))},
+            "RightHandLocator": {"rotation": track((0, ZERO), (0.25, [10, 0, 0]), (1.2, [10, 0, 0]), (1.6, ZERO))},
+        },
+    }
+
+
+def rival():
+    """Once, 1.8 s (the rods' rivalidade: Kitty and Kuromi nearby). Leaning in with a glare, the rod pointed ahead like
+    a sword, the free hand on the hip; two huffs."""
+    lean = [12, 0, 0]
+    huff = [16, 0, 0]
+    arm = [-85, -5, -10]
+    return {
+        "animation_length": 1.8,
+        "bones": {
+            "UpBody": {"rotation": track((0, ZERO), (0.2, lean), (0.6, huff), (0.8, lean), (1.2, huff), (1.4, lean),
+                                         (1.8, ZERO))},
+            "Head": {"rotation": track((0, ZERO), (0.2, [-12, 0, 0]), (1.5, [-12, 0, 0]), (1.8, ZERO))},
+            "RightArm": {"rotation": track((0, ZERO), (0.2, arm), (0.6, [-90, -5, -10]), (0.8, arm),
+                                           (1.2, [-90, -5, -10]), (1.5, arm), (1.8, ZERO))},
+            "RightForeArm": {"rotation": track((0, ZERO), (0.2, [-10, 0, 0]), (1.5, [-10, 0, 0]), (1.8, ZERO))},
+            "RightHandLocator": {"rotation": track((0, ZERO), (0.2, [85, 0, 0]), (1.5, [85, 0, 0]), (1.8, ZERO))},
+            "LeftArm": {"rotation": track((0, ZERO), (0.25, [15, 0, -40]), (1.5, [15, 0, -40]), (1.8, ZERO))},
+            "LeftForeArm": {"rotation": track((0, ZERO), (0.25, [-60, 0, 0]), (1.5, [-60, 0, 0]), (1.8, ZERO))},
+        },
+    }
+
+
+def celebrate():
+    """Once, 2.0 s (the rods' comemoracao: two fights won together). Two hops with both arms up and the rod high, then
+    the free fist pumps."""
+    up_r = [-170, 0, 10]
+    up_l = [-170, 0, -10]
+    return {
+        "animation_length": 2.0,
+        "bones": {
+            "AllBody": {"position": track(
+                (0, ZERO), (0.1, [0, -0.6, 0]), (0.3, [0, 2.0, 0]), (0.5, ZERO), (0.6, [0, -0.5, 0]),
+                (0.8, [0, 2.0, 0]), (1.0, ZERO), (2.0, ZERO))},
+            "Head": {"rotation": track((0, ZERO), (0.2, [-15, 0, 0]), (1.0, [-12, 0, 0]), (1.5, [-10, 0, 0]),
+                                       (2.0, ZERO))},
+            "RightArm": {"rotation": track((0, ZERO), (0.2, up_r), (0.3, [-170, 0, 18]), (0.55, up_r),
+                                           (0.8, [-170, 0, 18]), (1.1, up_r), (1.7, [-150, 0, 10]), (2.0, ZERO))},
+            "RightForeArm": {"rotation": track((0, ZERO), (0.2, [-10, 0, 0]), (1.7, [-10, 0, 0]), (2.0, ZERO))},
+            "RightHandLocator": {"rotation": track((0, ZERO), (0.2, [40, 0, 0]), (1.7, [40, 0, 0]), (2.0, ZERO))},
+            "LeftArm": {"rotation": track((0, ZERO), (0.2, up_l), (0.3, [-170, 0, -18]), (0.55, up_l),
+                                          (0.8, [-170, 0, -18]), (1.1, up_l), (1.25, [-150, 0, -10]),
+                                          (1.4, [-178, 0, -10]), (1.55, [-150, 0, -10]), (1.7, [-178, 0, -10]),
+                                          (2.0, ZERO))},
+            "LeftForeArm": {"rotation": track((0, ZERO), (0.2, [-10, 0, 0]), (1.25, [-40, 0, 0]), (1.4, [-5, 0, 0]),
+                                              (1.55, [-40, 0, 0]), (1.7, [-5, 0, 0]), (2.0, ZERO))},
+            "LeftLeg": {"rotation": track((0, ZERO), (0.1, [-10, 0, 0]), (0.3, ZERO), (0.5, [-8, 0, 0]),
+                                          (0.6, [-10, 0, 0]), (0.8, ZERO), (1.0, [-8, 0, 0]), (1.2, ZERO), (2.0, ZERO))},
+            "RightLeg": {"rotation": track((0, ZERO), (0.1, [-10, 0, 0]), (0.3, ZERO), (0.5, [-8, 0, 0]),
+                                           (0.6, [-10, 0, 0]), (0.8, ZERO), (1.0, [-8, 0, 0]), (1.2, ZERO),
+                                           (2.0, ZERO))},
+            "LeftLowerLeg": {"rotation": track((0, ZERO), (0.1, [15, 0, 0]), (0.3, ZERO), (0.5, [12, 0, 0]),
+                                               (0.6, [15, 0, 0]), (0.8, ZERO), (1.0, [12, 0, 0]), (1.2, ZERO),
+                                               (2.0, ZERO))},
+            "RightLowerLeg": {"rotation": track((0, ZERO), (0.1, [15, 0, 0]), (0.3, ZERO), (0.5, [12, 0, 0]),
+                                                (0.6, [15, 0, 0]), (0.8, ZERO), (1.0, [12, 0, 0]), (1.2, ZERO),
+                                                (2.0, ZERO))},
         },
     }
 
@@ -381,6 +528,12 @@ def animations():
         "fishing:catch": catch(),
         "fishing:escape": escape(),
         "fishing:retrieve": retrieve(),
+        "fishing:pet": pet(),
+        "fishing:inspect": inspect(),
+        "fishing:lazy": lazy(),
+        "fishing:greet": greet(),
+        "fishing:rival": rival(),
+        "fishing:celebrate": celebrate(),
     }
 
 

@@ -386,6 +386,118 @@ class FishingStatesTest {
         assertTrue(Math.signum(tense - calm) == Math.signum(heaving - calm), "both lean the same way");
     }
 
+    /** The rod's axis in model space after a few ticks of a phase (x right, y up, z back). */
+    private static float[] rodAfter(String model, String state, boolean line) throws IOException {
+        PlayerAnimator a = animator(model);
+        PlayerSnapshot s = new PlayerSnapshot();
+        ExternalStates states = new ExternalStates();
+        s.mainhand = ROD;
+        s.fishing = line;
+        if (state != null) {
+            states.set(PLAYER, FishingStates.STATE, state);
+            states.set(PLAYER, FishingStates.TENSION, "0.5");
+            s.external = states.of(PLAYER);
+        }
+        run(a, s, 0, 40);
+        return new RodAim(a.model().geometry).rodInModel(a.pose());
+    }
+
+    @Test
+    void theRodStaysStraightOnEveryModel() throws IOException {
+        // both hands meet in front of the body: each arm turns inward, and every model has its own arms; the rod still
+        // points straight ahead of the torso (only its rise is the clip's)
+        for (String model : new String[] { "default", "misc/1_alex", "wine_fox/13_matured", "wine_fox/22_elf" }) {
+            for (String state : new String[] { null, "briga", "recolher", "ready" }) {
+                float[] rod = "ready".equals(state) ? rodAfter(model, null, false) : rodAfter(model, state, true);
+                String what = model + " " + (state == null ? "wait" : state);
+                assertTrue(Math.abs(rod[0]) < 0.03f, what + ": no slant, x=" + rod[0]);
+                if (!"ready".equals(state)) {
+                    assertTrue(rod[1] > 0.3f, what + ": the rod rises, y=" + rod[1]);
+                }
+            }
+        }
+    }
+
+    @Test
+    void withTheLineOutTheRodPointsWhereThePlayerLooks() throws IOException {
+        // 1.7.10's body lags the head by up to 75 degrees when standing: the player (and the camera) look at the
+        // bobber, the body faces elsewhere; the rod follows the look, the torso turns half of it
+        for (float look : new float[] { 30, -45 }) {
+            PlayerAnimator a = animator("default");
+            PlayerSnapshot s = new PlayerSnapshot();
+            s.mainhand = ROD;
+            s.fishing = true;
+            s.bodyYaw = 0;
+            s.headYaw = look;
+            run(a, s, 0, 40);
+            float[] rod = new RodAim(a.model().geometry).rodInModel(a.pose());
+            // the pose's look (netHeadYaw is the negated head turn) applied to straight ahead (0, 0, -1)
+            double want = Math.toRadians(-look);
+            double rodTurn = Math.atan2(-rod[0], -rod[2]);
+            assertEquals(Math.toDegrees(-Math.sin(want) == 0 ? 0 : want), Math.toDegrees(rodTurn), 2.0, "look " + look);
+            int torso = a.model().geometry.indexOf("UpBody");
+            assertTrue(
+                Math.abs(a.pose().values[torso * BonePose.FLOATS + 1]) > Math.toRadians(Math.abs(look) * 0.4),
+                "the torso turns toward the look");
+        }
+        // only holding the rod (no line): straight ahead of the body, whatever the look
+        PlayerAnimator a = animator("default");
+        PlayerSnapshot s = new PlayerSnapshot();
+        s.mainhand = ROD;
+        s.headYaw = 40;
+        run(a, s, 0, 40);
+        float[] rod = new RodAim(a.model().geometry).rodInModel(a.pose());
+        assertTrue(Math.abs(rod[0]) < 0.03f, "straight ahead of the body: x=" + rod[0]);
+    }
+
+    @Test
+    void theReactionsOfTheRod() {
+        assertEquals(Phase.PET, FishingStates.fromState("carinho"));
+        assertEquals(Phase.INSPECT, FishingStates.fromState("inspecionar"));
+        assertEquals(Phase.LAZY, FishingStates.fromState("ociosa"));
+        assertEquals(Phase.GREET, FishingStates.fromState("encontro"));
+        assertEquals(Phase.RIVAL, FishingStates.fromState("rivalidade"));
+        assertEquals(Phase.CELEBRATE, FishingStates.fromState("comemoracao"));
+        AnimationLibrary library = defaultLibrary();
+        for (Phase p : new Phase[] { Phase.PET, Phase.INSPECT, Phase.LAZY, Phase.GREET, Phase.RIVAL,
+            Phase.CELEBRATE }) {
+            assertNotNull(library.get(p.animation), p.animation);
+        }
+        FishingStates.Tracker t = new FishingStates.Tracker();
+        PlayerSnapshot s = new PlayerSnapshot();
+        ExternalStates states = new ExternalStates();
+        s.mainhand = ROD;
+        float now = 0;
+        t.update(s, now, library);
+        // Shift and a left click: no cast, the server's carinho
+        s.sneaking = true;
+        swing(s);
+        assertEquals(Phase.READY, t.update(s, ++now, library), "a gesture is not a cast");
+        states.set(PLAYER, FishingStates.STATE, "carinho");
+        s.external = states.of(PLAYER);
+        assertEquals(Phase.PET, t.update(s, ++now, library));
+        s.swinging = false;
+        s.sneaking = false;
+        now += library.get("fishing:pet").length + 4;
+        assertEquals(Phase.READY, t.update(s, now, library), "a reaction plays once");
+        // idle 30 s: loops with the line in, until the player moves (parada)
+        states.set(PLAYER, FishingStates.STATE, "ociosa");
+        assertEquals(Phase.LAZY, t.update(s, ++now, library));
+        now += 200;
+        assertEquals(Phase.LAZY, t.update(s, now, library), "loops with the line in");
+        states.set(PLAYER, FishingStates.STATE, "parada");
+        assertEquals(Phase.READY, t.update(s, ++now, library), "moved: over");
+        // a reaction that starts as the line comes back is not cut short by the line
+        s.fishing = true;
+        now += 60;
+        t.update(s, now, library);
+        now += 60;
+        assertEquals(Phase.WAIT, t.update(s, now, library));
+        s.fishing = false;
+        states.set(PLAYER, FishingStates.STATE, "encontro");
+        assertEquals(Phase.GREET, t.update(s, ++now, library));
+    }
+
     @Test
     void everyModelFallsBackToTheDefaultSet() throws IOException {
         for (String model : new String[] { "misc/1_alex", "wine_fox/13_matured" }) {

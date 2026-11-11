@@ -193,7 +193,8 @@ public final class FuturaModels {
     /**
      * API 4: what the player's rod is doing as his model plays it: {@code none} (no rod), {@code ready} (in hand, the
      * line in), {@code draw}, {@code cast}, {@code wait}, {@code bite}, {@code fight}, {@code reel}, {@code catch},
-     * {@code escape} or {@code retrieve}; null when he is not drawn with a model.
+     * {@code escape}, {@code retrieve}, or a reaction of AkashicFishing's rods ({@code pet}, {@code inspect},
+     * {@code lazy}, {@code greet}, {@code rival}, {@code celebrate}); null when he is not drawn with a model.
      */
     public static String fishingPhase(EntityPlayer player) {
         if (!(player instanceof net.minecraft.client.entity.AbstractClientPlayer) || !client()) {
