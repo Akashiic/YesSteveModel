@@ -32,9 +32,10 @@ public final class FuturaModels {
     /**
      * Raised when a method is added; 1: the methods below; 2: {@link #modelKey}; 3: external states
      * ({@link #setExternalState}, {@link #externalState}), {@link #hasAnimation} and {@link #playingAnimation}; 4:
-     * the rod ({@link #FISHING_STATE}, {@link #FISHING_TENSION}, {@link #fishingPhase}); 5: {@link #setArmPose}.
+     * the rod ({@link #FISHING_STATE}, {@link #FISHING_TENSION}, {@link #fishingPhase}); 5: {@link #setArmPose}; 6:
+     * {@link #setBonePose} and {@link #setScreenDraw}.
      */
-    public static final int API_VERSION = 5;
+    public static final int API_VERSION = 6;
 
     /**
      * External state (API 3): any value while the player's main hand holds a SlashBlade-style blade. The model then
@@ -222,6 +223,39 @@ public final class FuturaModels {
         return player != null && client()
             && PlayerModels.INSTANCE.armPoses()
                 .set(player.getUniqueID(), right, left, System.nanoTime());
+    }
+
+    /**
+     * API 6: poses any bones of the player's model for a moment, by name: a gesture or a hand sign, in the world and
+     * wherever else the player is drawn (the inventory, another mod's screen). Each bone gets the rotation an
+     * animation file would give it: degrees, x y z as Blockbench shows them, relative to the bone's rest rotation.
+     * {@code weight} blends from the rotation the animation has (0) to the given one (1), so a gesture can ease in
+     * and out. Bones the model does not have are skipped: name the standard ones ({@code RightArm},
+     * {@code RightForeArm}, {@code RightHand}, {@code LeftArm}..., {@code Head}) and any finger bones a model may
+     * have. Call it every frame before the player is drawn ({@code RenderPlayerEvent.Pre}); a pose not set again
+     * lapses within a quarter of a second. It is applied after {@link #setArmPose}.
+     *
+     * @param bones   at most 48 names; null or empty clears
+     * @param degrees three numbers for each bone
+     * @return false on a dedicated server, or for a pose that is not accepted (a count that does not match, a
+     *         number that is not finite)
+     */
+    public static boolean setBonePose(EntityPlayer player, String[] bones, float[] degrees, float weight) {
+        return player != null && client()
+            && PlayerModels.INSTANCE.bonePoses()
+                .set(player.getUniqueID(), bones, degrees, weight, System.nanoTime());
+    }
+
+    /**
+     * API 6: for a mod that draws a player itself outside the world and outside any screen (on the HUD, with
+     * {@code RenderManager.renderEntityWithPosYaw} and {@code RenderManager.playerViewY = 180}, as the inventory
+     * does): set it before that draw and clear it right after. The model is then drawn where the caller's matrix
+     * puts it, as in a screen, and not at the player's feet in the world.
+     */
+    public static void setScreenDraw(boolean drawing) {
+        if (client()) {
+            PlayerModels.screenDraw = drawing;
+        }
     }
 
     /** API 3: a state set with {@link #setExternalState}, or null. */

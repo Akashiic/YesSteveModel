@@ -315,7 +315,9 @@ compartilhado).
 
 `com.akashic.futura.api.FuturaModels` é o ponto de entrada para outros mods, só com tipos do JDK e do Minecraft nas
 assinaturas, para ser chamado por reflexão (o Kunftig não depende do futura3d). Lado do cliente; no servidor dedicado
-responde `false`/`null`. `API_VERSION = 2` (o 2, da fase 4b, acrescenta `modelKey`).
+responde `false`/`null`. `API_VERSION = 2` (o 2, da fase 4b, acrescenta `modelKey`). A API 6 (`setBonePose`,
+`setScreenDraw`) foi vista em jogo com o RyoikiTenkai no cliente TEOF 5.4 e num modelo de servidor, com
+renderização por software; com outros modelos, a verificar.
 
 | Método | O que dá |
 |---|---|
@@ -327,6 +329,8 @@ responde `false`/`null`. `API_VERSION = 2` (o 2, da fase 4b, acrescenta `modelKe
 | `setKeepsItemWhileFishing(Predicate)` | um mod que desenha a própria vara (o Kunftig) mantém o item na mão com a linha fora, no lugar do graveto |
 | `fishingPhase(player)`, `FISHING_STATE`, `FISHING_TENSION` (API 4) | a vara nos modelos: a fase que o modelo toca e os estados que o Kunftig diz (ver "Pesca", abaixo) |
 | `setArmPose(player, direito, esquerdo)` (API 5) | os braços do modelo por um instante, como um mod põe os do bíped (os peixes 3D do Kunftig; ver "Varas e peixes 3D", abaixo) |
+| `setBonePose(player, ossos, graus, peso)` (API 6) | qualquer osso do modelo por um instante, pelo nome, com a rotação que um arquivo de animação daria (graus, relativa ao repouso) e um peso de 0 a 1 que mistura com a animação; ossos que o modelo não tem são ignorados. Para gestos de outros mods (os sinais de mão do RyoikiTenkai). Aplicado depois do `setArmPose`; caduca em um quarto de segundo |
+| `setScreenDraw(boolean)` (API 6) | em volta do desenho de um jogador que outro mod faz no HUD, sem tela aberta (`RenderManager.renderEntityWithPosYaw` com `playerViewY = 180`): o modelo é desenhado onde a matriz manda, como no inventário, e não nos pés do jogador no mundo |
 
 ### Linha de pesca
 
