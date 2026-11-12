@@ -361,6 +361,8 @@ public final class ClientNetwork implements ClientSession.Listener, ClientSessio
             .clear(); // UUIDs of another world
         PlayerModels.INSTANCE.armPoses()
             .clear();
+        PlayerModels.INSTANCE.bonePoses()
+            .clear();
     }
 
     /**
