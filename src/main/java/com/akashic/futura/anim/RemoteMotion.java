@@ -36,7 +36,8 @@ public final class RemoteMotion {
      *
      * @param tick        the entity's {@code ticksExisted}
      * @param dx          {@code posX - prevPosX}: the tick's movement
-     * @param groundBelow a collision box right under his feet
+     * @param groundBelow a collision box right under his feet, or a mod's word that he stands on something that is
+     *                    not a block (it sets his {@code onGround}: Kunftig's ship decks)
      * @param riding      in a vehicle (no walking)
      */
     public void update(int tick, double dx, double dy, double dz, boolean groundBelow, boolean inWater,

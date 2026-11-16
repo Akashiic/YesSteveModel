@@ -155,7 +155,9 @@ final class PlayerInputsAdapter {
 
     /**
      * Another player: 1.7.10 sends neither his ground nor his flight, and his entity does not move itself, so they
-     * are estimated from his positions and the blocks under him.
+     * are estimated from his positions and the blocks under him. A client never sets his {@code onGround}, so a mod
+     * that knows he stands on something that is not a block sets it (Kunftig, for a player on a ship's deck, which
+     * is a display and has no blocks): it counts as ground under him, or he would hover there and be drawn flying.
      */
     private static void remote(PlayerSnapshot s, AbstractClientPlayer p) {
         RemoteMotion m = REMOTE.get(p);
@@ -170,7 +172,7 @@ final class PlayerInputsAdapter {
                 p.posX - p.prevPosX,
                 p.posY - p.prevPosY,
                 p.posZ - p.prevPosZ,
-                !riding && groundBelow(p),
+                !riding && (p.onGround || groundBelow(p)),
                 p.isInWater(),
                 riding);
         }
