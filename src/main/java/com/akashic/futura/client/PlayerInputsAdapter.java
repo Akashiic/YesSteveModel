@@ -138,6 +138,14 @@ final class PlayerInputsAdapter {
             s.vehicleBodyYaw = lerpAngle(living.prevRenderYawOffset, living.renderYawOffset, pt);
         }
         s.passengerId = p.riddenByEntity == null ? null : entityId(p.riddenByEntity);
+        String posture = com.akashic.futura.anim.Postures.of(s.external);
+        if (!s.riding && com.akashic.futura.anim.Postures.sits(posture)) {
+            s.riding = true; // a seat that is no entity: the vehicle controller's "sit"
+            s.vehicleKind = PlayerInputs.VehicleKind.OTHER;
+            s.riderSits = true;
+        } else if (!s.riding && com.akashic.futura.anim.Postures.lies(posture)) {
+            s.sleeping = true;
+        }
 
         World w = p.worldObj;
         s.weather = w.isThundering() ? 2 : w.isRaining() ? 1 : 0;

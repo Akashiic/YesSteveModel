@@ -203,11 +203,30 @@ public final class ThirdPersonRenderer {
             Mat4.rotateY(out, 0, (float) Math.toRadians(player.getBedOrientationInDegrees()));
             Mat4.rotateZ(out, 0, (float) Math.toRadians(90));
             Mat4.rotateY(out, 0, (float) Math.toRadians(270));
+        } else if (player.isEntityAlive() && !player.isRiding() && lying(player) != null) {
+            // Laid down by another mod (FuturaModels.setPosture): the feet at the position, the head towards the yaw.
+            Mat4.translate(out, 0, (float) x, (float) y, (float) z);
+            Mat4.rotateY(
+                out,
+                0,
+                (float) Math.toRadians(
+                    com.akashic.futura.anim.Postures
+                        .bedDegrees(com.akashic.futura.anim.Postures.headYaw(lying(player)))));
+            Mat4.rotateZ(out, 0, (float) Math.toRadians(90));
+            Mat4.rotateY(out, 0, (float) Math.toRadians(270));
         } else {
             Mat4.translate(out, 0, (float) x, (float) y, (float) z);
             Mat4.rotateY(out, 0, (float) Math.toRadians(180 - bodyYaw));
         }
         Mat4.scale(out, 0, widthScale, heightScale, widthScale);
+    }
+
+    /** The posture state of a player another mod laid down, or null. */
+    private static String lying(EntityPlayer player) {
+        String posture = com.akashic.futura.anim.Postures.of(
+            PlayerModels.INSTANCE.externalStates()
+                .of(player.getUniqueID()));
+        return com.akashic.futura.anim.Postures.lies(posture) ? posture : null;
     }
 
     private void multiply(float[] m, int offset) {

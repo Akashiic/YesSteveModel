@@ -35,7 +35,7 @@ public final class FuturaModels {
      * the rod ({@link #FISHING_STATE}, {@link #FISHING_TENSION}, {@link #fishingPhase}); 5: {@link #setArmPose}; 6:
      * {@link #setBonePose} and {@link #setScreenDraw}.
      */
-    public static final int API_VERSION = 6;
+    public static final int API_VERSION = 7;
 
     /**
      * External state (API 3): any value while the player's main hand holds a SlashBlade-style blade. The model then
@@ -189,6 +189,21 @@ public final class FuturaModels {
         return player != null && client()
             && PlayerModels.INSTANCE.externalStates()
                 .set(player.getUniqueID(), key, value);
+    }
+
+    /**
+     * API 7: sits the player down ({@code "sit"}: the model's {@code sit}, as on a vehicle that is neither pig, mount
+     * nor boat) or lays him down ({@code "lie"}: the model's {@code sleep}, the feet at his position and the head
+     * towards {@code headYaw}, Minecraft's yaw) where there is no vehicle and no bed: a chair, a bunk, a hammock on
+     * a Kunftig display. Null or anything else stands him up. It is the external state {@code posture}; placing the
+     * player and holding him there is the caller's.
+     *
+     * @return false when not accepted (see {@link #setExternalState})
+     */
+    public static boolean setPosture(EntityPlayer player, String posture, float headYaw) {
+        String value = "sit".equals(posture) ? com.akashic.futura.anim.Postures.SIT
+            : "lie".equals(posture) ? com.akashic.futura.anim.Postures.lie(headYaw) : null;
+        return setExternalState(player, com.akashic.futura.anim.Postures.KEY, value);
     }
 
     /**

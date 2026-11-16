@@ -237,7 +237,10 @@ public final class ArmorRenderer {
             }
         }
         model.isSneak = player.isSneaking();
-        model.isRiding = player.isRiding();
+        model.isRiding = player.isRiding() || com.akashic.futura.anim.Postures.sits(
+            com.akashic.futura.anim.Postures.of(
+                com.akashic.futura.client.PlayerModels.INSTANCE.externalStates()
+                    .of(player.getUniqueID())));
         model.isChild = false;
         model.onGround = player.getSwingProgress(pt);
         float swing = player.limbSwing - player.limbSwingAmount * (1 - pt);
