@@ -204,14 +204,18 @@ public final class ThirdPersonRenderer {
             Mat4.rotateZ(out, 0, (float) Math.toRadians(90));
             Mat4.rotateY(out, 0, (float) Math.toRadians(270));
         } else if (player.isEntityAlive() && !player.isRiding() && lying(player) != null) {
-            // Laid down by another mod (FuturaModels.setPosture): the feet at the position, the head towards the yaw.
-            Mat4.translate(out, 0, (float) x, (float) y, (float) z);
-            Mat4.rotateY(
+            // Laid down by another mod (FuturaModels.setPosture): the middle of the body at the position, the head
+            // towards the yaw, (-sin, cos) of it.
+            String lying = lying(player);
+            float headYaw = com.akashic.futura.anim.Postures.headYaw(lying);
+            double rad = Math.toRadians(headYaw);
+            Mat4.translate(
                 out,
                 0,
-                (float) Math.toRadians(
-                    com.akashic.futura.anim.Postures
-                        .bedDegrees(com.akashic.futura.anim.Postures.headYaw(lying(player)))));
+                (float) (x + Math.sin(rad) * com.akashic.futura.anim.Postures.HALF_BODY),
+                (float) (y + com.akashic.futura.anim.Postures.rise(lying)),
+                (float) (z - Math.cos(rad) * com.akashic.futura.anim.Postures.HALF_BODY));
+            Mat4.rotateY(out, 0, (float) Math.toRadians(com.akashic.futura.anim.Postures.bedDegrees(headYaw)));
             Mat4.rotateZ(out, 0, (float) Math.toRadians(90));
             Mat4.rotateY(out, 0, (float) Math.toRadians(270));
         } else {

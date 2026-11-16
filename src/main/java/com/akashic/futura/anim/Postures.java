@@ -12,8 +12,14 @@ public final class Postures {
     public static final String KEY = "posture";
     /** Value: sitting. */
     public static final String SIT = "sit";
-    /** Value prefix: lying, followed by the yaw the head points to, in degrees (Minecraft's: 0 is +z, 90 is -x). */
+    /**
+     * Value prefix: lying, followed by the yaw the head points to, in degrees (Minecraft's: 0 is +z, 90 is -x), and
+     * optionally by {@code :} and how much higher than the player's position the model is drawn, in blocks (a local
+     * player lowered so that his eyes are near the pillow).
+     */
     public static final String LIE = "lie:";
+    /** Half the body of one who lies: the model is laid with its middle on the player's position. */
+    public static final float HALF_BODY = 0.9f;
 
     private Postures() {}
 
@@ -30,17 +36,31 @@ public final class Postures {
         return value != null && value.startsWith(LIE);
     }
 
-    /** The yaw the head of a lying player points to; 0 when the value has none that can be read. */
-    public static float headYaw(String value) {
+    private static float number(String value, int index) {
         if (!lies(value)) {
             return 0;
         }
+        String[] parts = value.substring(LIE.length())
+            .split(":", -1);
+        if (index >= parts.length) {
+            return 0;
+        }
         try {
-            float yaw = Float.parseFloat(value.substring(LIE.length()));
-            return Float.isNaN(yaw) || Float.isInfinite(yaw) ? 0 : yaw;
+            float v = Float.parseFloat(parts[index]);
+            return Float.isNaN(v) || Float.isInfinite(v) ? 0 : v;
         } catch (NumberFormatException e) {
             return 0;
         }
+    }
+
+    /** The yaw the head of a lying player points to; 0 when the value has none that can be read. */
+    public static float headYaw(String value) {
+        return number(value, 0);
+    }
+
+    /** How much higher than the position the lying model is drawn; 0 when the value does not say, at most 2. */
+    public static float rise(String value) {
+        return Math.max(0, Math.min(2, number(value, 1)));
     }
 
     /**

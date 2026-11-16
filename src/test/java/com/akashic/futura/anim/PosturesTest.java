@@ -41,6 +41,16 @@ class PosturesTest {
     }
 
     @Test
+    void theRiseIsOptionalAndBounded() {
+        assertEquals(0f, Postures.rise(Postures.lie(10)), 0);
+        assertEquals(1.17f, Postures.rise("lie:10.0:1.17"), 1e-6);
+        assertEquals(10f, Postures.headYaw("lie:10.0:1.17"), 0);
+        assertEquals(2f, Postures.rise("lie:0:99"), 0);
+        assertEquals(0f, Postures.rise("lie:0:-3"), 0);
+        assertEquals(0f, Postures.rise("lie:0:x"), 0);
+    }
+
+    @Test
     void itIsAnExternalState() {
         ExternalStates states = new ExternalStates();
         UUID id = UUID.randomUUID();

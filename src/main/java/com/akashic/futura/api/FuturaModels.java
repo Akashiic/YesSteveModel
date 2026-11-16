@@ -193,7 +193,8 @@ public final class FuturaModels {
 
     /**
      * API 7: sits the player down ({@code "sit"}: the model's {@code sit}, as on a vehicle that is neither pig, mount
-     * nor boat) or lays him down ({@code "lie"}: the model's {@code sleep}, the feet at his position and the head
+     * nor boat) or lays him down ({@code "lie"}: the model's {@code sleep}, the middle of the body at his position and
+     * the head
      * towards {@code headYaw}, Minecraft's yaw) where there is no vehicle and no bed: a chair, a bunk, a hammock on
      * a Kunftig display. Null or anything else stands him up. It is the external state {@code posture}; placing the
      * player and holding him there is the caller's.
