@@ -149,7 +149,9 @@ final class PlayerInputsAdapter {
             MathHelper.floor_double(p.posZ));
         s.firstPerson = mc.gameSettings.thirdPersonView == 0 && p == mc.renderViewEntity;
         // GuiInventory draws the player with the view yaw forced to 180.
-        s.renderingInInventory = RenderManager.instance.playerViewY == 180f && mc.currentScreen != null;
+        // a screen's draw (the inventory), or another mod's draw on the HUD (FuturaModels.setScreenDraw)
+        s.renderingInInventory = RenderManager.instance.playerViewY == 180f
+            && (mc.currentScreen != null || PlayerModels.screenDraw);
         s.distanceFromCamera = mc.renderViewEntity == null ? 0 : p.getDistanceToEntity(mc.renderViewEntity);
     }
 
