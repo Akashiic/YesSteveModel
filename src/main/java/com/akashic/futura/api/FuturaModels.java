@@ -35,7 +35,7 @@ public final class FuturaModels {
      * the rod ({@link #FISHING_STATE}, {@link #FISHING_TENSION}, {@link #fishingPhase}); 5: {@link #setArmPose}; 6:
      * {@link #setBonePose} and {@link #setScreenDraw}.
      */
-    public static final int API_VERSION = 7;
+    public static final int API_VERSION = 8;
 
     /**
      * External state (API 3): any value while the player's main hand holds a SlashBlade-style blade. The model then
@@ -190,6 +190,14 @@ public final class FuturaModels {
             && PlayerModels.INSTANCE.externalStates()
                 .set(player.getUniqueID(), key, value);
     }
+
+    /**
+     * API 8: the external state a mod sets on <b>another</b> player it carries on something that is no entity (a
+     * Kunftig display, a ship's deck): {@code "dx:dz"}, how far that thing moved under him this tick, in blocks.
+     * His model's speed is read from how his position changes; this much of the change is taken out, so he does
+     * not walk while he stands still on a deck that sails. Cleared (null) when he steps off.
+     */
+    public static final String CARRIER = com.akashic.futura.anim.Carrier.KEY;
 
     /**
      * API 7: sits the player down ({@code "sit"}: the model's {@code sit}, as on a vehicle that is neither pig, mount

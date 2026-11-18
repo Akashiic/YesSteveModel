@@ -177,11 +177,16 @@ final class PlayerInputsAdapter {
         }
         if (m.stale(p.ticksExisted)) {
             boolean riding = p.ridingEntity != null;
+            // (on a moving deck the change of position is the deck's: what carries him is taken out, FuturaModels API
+            // 8)
+            double[] carried = com.akashic.futura.anim.Carrier.of(
+                PlayerModels.INSTANCE.externalStates()
+                    .of(p.getUniqueID()));
             m.update(
                 p.ticksExisted,
-                p.posX - p.prevPosX,
+                p.posX - p.prevPosX - carried[0],
                 p.posY - p.prevPosY,
-                p.posZ - p.prevPosZ,
+                p.posZ - p.prevPosZ - carried[1],
                 !riding && (p.onGround || groundBelow(p)),
                 p.isInWater(),
                 riding);

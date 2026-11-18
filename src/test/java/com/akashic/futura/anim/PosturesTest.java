@@ -60,4 +60,20 @@ class PosturesTest {
         states.set(id, Postures.KEY, null);
         assertNull(Postures.of(states.of(id)));
     }
+
+    /** What carries another player (API 8): read back, bounded, and nothing when it cannot be read. */
+    @Test
+    void theCarrierIsReadAndBounded() {
+        double[] c = Carrier.parse(Carrier.value(0.3961, -0.0204));
+        assertEquals(0.396, c[0], 1e-9);
+        assertEquals(-0.02, c[1], 1e-9);
+        assertEquals(0, Carrier.parse(null)[0], 0);
+        assertEquals(0, Carrier.parse("x:1")[1], 0);
+        assertEquals(0, Carrier.parse("99:0")[0], 0);
+        ExternalStates states = new ExternalStates();
+        UUID id = UUID.randomUUID();
+        states.set(id, Carrier.KEY, Carrier.value(0.4, 0));
+        assertEquals(0.4, Carrier.of(states.of(id))[0], 1e-9);
+        assertEquals(0, Carrier.of(states.of(UUID.randomUUID()))[0], 0);
+    }
 }
