@@ -22,10 +22,7 @@ import com.akashic.futura.client.ViewCamera;
 @Mixin(EntityLivingBase.class)
 public abstract class EntityLivingBasePickMixin {
 
-    @ModifyVariable(
-        method = "rayTrace(DF)Lnet/minecraft/util/MovingObjectPosition;",
-        at = @At("STORE"),
-        ordinal = 0)
+    @ModifyVariable(method = "rayTrace(DF)Lnet/minecraft/util/MovingObjectPosition;", at = @At("STORE"), ordinal = 0)
     private Vec3 futura3d$pickFromCamera(Vec3 origin) {
         return ViewCamera.INSTANCE.pickOrigin((Entity) (Object) this, origin, true);
     }
