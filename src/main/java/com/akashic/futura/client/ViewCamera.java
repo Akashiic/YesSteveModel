@@ -3,8 +3,10 @@ package com.akashic.futura.client;
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
+import net.minecraft.entity.Entity;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 
 import org.lwjgl.opengl.GL11;
@@ -20,8 +22,9 @@ import com.akashic.futura.geo.PoseMatrices;
 /**
  * The first-person camera height from the local player's model ({@link EyeHeight}): at the end of
  * {@code EntityRenderer.orientCamera} the view is moved up or down so the eye sits over the model's
- * {@code ViewLocator} (or {@code Head}) in its current pose. Render only: the player's eye height for reach, block
- * picking and the server stays vanilla's, as upstream never changes it either.
+ * {@code ViewLocator} (or {@code Head}) in its current pose. The client's pick rays follow the camera
+ * ({@link #pickOrigin}), so the outlined block is the one under the crosshair; the player's eye height for reach and
+ * the server stays vanilla's, as upstream never changes it either.
  *
  * <p>
  * The body is not drawn in first person, so its animator is updated here each frame, as the third-person draw does
@@ -41,6 +44,13 @@ public final class ViewCamera {
     private long lastNanos = -1;
     /** The last target, for the harness and logs; NaN when vanilla. */
     private float target = Float.NaN;
+    /**
+     * Whether the block and the entity pick rays have been seen moving with the camera ({@link #pickOrigin}). Until
+     * both have (a mod that replaces {@code rayTrace} or {@code getMouseOver} leaves a hook out), the camera stays at
+     * vanilla's height: a camera the crosshair does not follow puts the block outline off the aimed point.
+     */
+    private volatile boolean blocksFollow;
+    private volatile boolean entitiesFollow;
 
     private ViewCamera() {}
 
@@ -58,6 +68,30 @@ public final class ViewCamera {
     /** The camera's move from vanilla's height applied in the last frame, in blocks. */
     public float offset() {
         return smoother.value();
+    }
+
+    /**
+     * The origin of a pick ray ({@code EntityLivingBase.rayTrace}, {@code EntityRenderer.getMouseOver}) moved up or
+     * down with the camera, so the block or entity picked is the one under the crosshair. Only the local player's
+     * rays, and only while the camera is moved; the server's checks keep the vanilla eye (a few hundredths of a block,
+     * at most {@link EyeHeight} limits, well inside its reach margin). Called after the Akashic Player Backport's own
+     * pose-aware origin, which moves its camera and its rays together: this move is added on top of both.
+     */
+    public Vec3 pickOrigin(Entity entity, Vec3 origin, boolean blocks) {
+        if (blocks) {
+            blocksFollow = true;
+        } else {
+            entitiesFollow = true;
+        }
+        float offset = smoother.value();
+        if (origin == null || offset == 0 || Float.isNaN(target)) {
+            return origin;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (entity == null || entity != mc.thePlayer || mc.renderViewEntity != entity) {
+            return origin;
+        }
+        return Vec3.createVectorHelper(origin.xCoord, origin.yCoord + offset, origin.zCoord);
     }
 
     /** The unsmoothed move wanted in the last frame, or NaN when vanilla's height applies. */
@@ -89,6 +123,8 @@ public final class ViewCamera {
             || player.ridingEntity != null
             || !player.isEntityAlive()
             || ElytraBridge.flying(player) // gliding the body lies along the look: the head is no eye height
+            || !blocksFollow
+            || !entitiesFollow
             || !ClientOptions.INSTANCE.viewLocatorCamera()) {
             return Float.NaN;
         }

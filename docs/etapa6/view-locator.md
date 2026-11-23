@@ -46,8 +46,8 @@ Como funciona, por quadro, em primeira pessoa:
 
 **Igual ao upstream, de propósito**: a escolha do osso (`ViewLocator` antes de `Head`), a referência de 24 px (um modelo
 com a cabeça em 24 px, como `misc/1_alex`, fica com a câmera vanilla), só a altura (o eixo horizontal do jogador fica),
-e a altura dos olhos de jogo intocada: alcance, bloco apontado, raio do servidor e `getEyeHeight` continuam vanilla
-(mudança só de render, que é o que o upstream faz também, já que ele nunca muda a altura de jogo).
+e a altura dos olhos de jogo intocada: alcance, raio do servidor e `getEyeHeight` continuam vanilla (o upstream nunca
+muda a altura de jogo). Os raios de mira do cliente, sim, seguem a câmera (abaixo, "A mira segue a câmera").
 
 **Diferente, de propósito**:
 
@@ -118,8 +118,25 @@ olhando para o sul, pitch 0, uma coluna de lã com uma cor por bloco de altura (
 
 Os números batem com os do teste (que roda a mesma conta fora do jogo). Nas fotos, a mira passa do bloco laranja
 (olho vanilla a 1,62) para a borda entre o cinza e o laranja agachado com o `default`, para o meio do cinza com a Momo
-pequena e para o roxo com a Momo grande. O bloco destacado continua o laranja nas três: a escolha do bloco fica no
-olho vanilla (só render), como decidido acima.
+pequena e para o roxo com a Momo grande. O bloco destacado continuava o laranja nas três (fotos de antes da correção abaixo): a escolha do
+bloco ficava no olho vanilla.
+
+### A mira segue a câmera
+
+Com a câmera movida e o raio de mira no olho vanilla, o contorno preto do bloco saía alguns centímetros acima ou abaixo
+da mira, e a metade de cima ou de baixo de um slab, ou o lado de um bloco, era escolhida errado (relatado por jogadores
+no servidor). Agora os dois raios de mira do jogador local partem de onde a câmera está:
+
+* o de blocos, `EntityLivingBase.rayTrace` (`EntityLivingBasePickMixin`), e o de entidades, o primeiro `Vec3` de
+  `EntityRenderer.getMouseOver` (`EntityRendererMixin`), recebem `ViewCamera.offset()` na altura, por um
+  `@ModifyVariable` no `STORE` do resultado de `getPosition`;
+* o coremod do Akashic Player Backport embrulha essa mesma chamada (origem pela pose: agachar, rastejar, nadar) e só
+  confere as instruções antes dela; o deslocamento daqui entra depois do dele, em qualquer ordem de carga, e soma-se às
+  duas coisas que ele já move juntas (câmera e raio);
+* a câmera só sai da altura vanilla depois que os dois raios passaram pelo `ViewCamera.pickOrigin` (um mod que
+  substitua `rayTrace` ou `getMouseOver` deixa a câmera vanilla em vez de uma mira torta);
+* o servidor continua com o olho vanilla: o alcance dele tem folga para os poucos centímetros da diferença comum (até o
+  limite de `EyeHeight` com modelos muito grandes ou pequenos, o que fica a checar).
 
 ![Primeira pessoa, modelos desligados: a mira no bloco laranja](../img/etapa6-view-vanilla.png)
 ![Default em pé: quase igual (-0,055)](../img/etapa6-view-default.png)
@@ -135,8 +152,9 @@ imagens em `docs/img` só mostram modelos CC0); conferidas à mão: mira no bloc
   inteiro.
 * Na cama: a altura sai da cabeça do modelo deitado (com o giro da cama) e o 0,3 que o vanilla aplica no espaço da vista
   não entra na conta; sem foto.
-* A mira: o bloco apontado continua calculado do olho vanilla; com a câmera muito mais alta ou mais baixa (Momo com
-  `v.player_size` 2 ou 0,4), o centro da tela não aponta exatamente para o bloco destacado.
+* A mira seguindo a câmera: em jogo, no TEOF, com o Akashic Player Backport, o contorno sob a mira e o slab posto na
+  metade apontada, em pé e agachado; e, com a câmera muito mais alta ou mais baixa (Momo com `v.player_size` 2 ou 0,4),
+  se o servidor aceita os blocos postos e quebrados na borda do alcance, já que ele mede do olho vanilla.
 * Teto: só a coluna de blocos acima da câmera é olhada; perto de uma parede com teto baixo o plano próximo pode cortar
   um bloco do lado (o vanilla tem o mesmo caso).
 * Sons e eventos do corpo em primeira pessoa (efeito colateral acima): comparar com o YSM 1.20 se o jogador ouve os sons

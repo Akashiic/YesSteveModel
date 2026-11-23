@@ -12,6 +12,7 @@
     "ItemRendererMixin",
     "RenderFishMixin",
     "EntityRendererMixin",
+    "EntityLivingBasePickMixin",
     "EntityArrowAccessor",
     "RenderArrowMixin",
     "RenderBoatMixin",
